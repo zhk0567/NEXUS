@@ -15,20 +15,32 @@ import java.io.FileOutputStream
 
 class VoiceService(private val context: Context) {
     
-    private val audioRecorder = AudioRecorder(context)
-    private val audioPlayer = MediaAudioPlayer(context)
+    private val audioRecorder: AudioRecorder
+    private val audioPlayer: MediaAudioPlayer
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    init {
+        try {
+            audioRecorder = AudioRecorder(context)
+            audioPlayer = MediaAudioPlayer(context)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing VoiceService", e)
+            throw e
+        }
+    }
     
     private var recordedAudioData = ByteArrayOutputStream()
     private var isRecording = false
+    private var recordingStartTime = 0L
+    private var recordingJob: Job? = null
     
     companion object {
         private const val TAG = "VoiceService"
+        private const val MIN_RECORDING_DURATION_MS = 3000L // 3秒最短录音时长
     }
     
     fun startVoiceRecording(
         onRecordingStarted: () -> Unit = {},
-        onRecordingStopped: () -> Unit = {},
         onError: (Exception) -> Unit = {}
     ) {
         if (isRecording) {
@@ -38,6 +50,7 @@ class VoiceService(private val context: Context) {
         
         recordedAudioData.reset()
         isRecording = true
+        recordingStartTime = System.currentTimeMillis()
         
         audioRecorder.startRecording(
             onData = { data ->
@@ -64,6 +77,16 @@ class VoiceService(private val context: Context) {
             return
         }
         
+        val currentTime = System.currentTimeMillis()
+        val recordingDuration = currentTime - recordingStartTime
+        
+        // 检查录音时长是否满足最短要求
+        if (recordingDuration < MIN_RECORDING_DURATION_MS) {
+            val remainingTime = (MIN_RECORDING_DURATION_MS - recordingDuration) / 1000
+            onError(Exception("录音时间太短，请至少录音${remainingTime + 1}秒"))
+            return
+        }
+        
         isRecording = false
         val audioData = recordedAudioData.toByteArray()
         audioRecorder.stopRecording()
@@ -84,7 +107,7 @@ class VoiceService(private val context: Context) {
             }
         }
         
-        Log.d(TAG, "Voice recording stopped, audio data size: ${audioData.size}")
+        Log.d(TAG, "Voice recording stopped, audio data size: ${audioData.size}, duration: ${recordingDuration}ms")
     }
     
     private suspend fun transcribeAudio(

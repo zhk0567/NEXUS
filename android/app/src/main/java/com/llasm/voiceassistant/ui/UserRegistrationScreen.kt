@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -36,16 +37,16 @@ fun UserRegistrationScreen(
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = "用户注册",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.primary
+                style = MaterialTheme.typography.headlineSmall,
+                color = Color(0xFF424242)
             )
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             
             // 显示当前用户状态
             currentUser?.let { user ->
@@ -96,19 +97,28 @@ fun UserRegistrationScreen(
                     singleLine = true
                 )
                 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { phone = it },
-                    label = { Text("手机号 (可选)") },
+                    label = { Text("手机号") },
                     leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color(0xFF212121),
+                        unfocusedTextColor = Color(0xFF212121),
+                        cursorColor = Color(0xFF424242),
+                        focusedPlaceholderColor = Color(0xFF757575),
+                        unfocusedPlaceholderColor = Color(0xFF757575),
+                        focusedBorderColor = Color(0xFF424242),
+                        unfocusedBorderColor = Color(0xFFBDBDBD)
+                    )
                 )
                 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 
                 OutlinedTextField(
                     value = email,
@@ -120,13 +130,13 @@ fun UserRegistrationScreen(
                     singleLine = true
                 )
                 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 
                 Button(
                     onClick = {
-                        if (nickname.isNotBlank()) {
+                        if (nickname.isNotBlank() && phone.isNotBlank()) {
                             isRegistering = true
-                            val success = userManager.registerUser(nickname, phone.takeIf { it.isNotBlank() }, email.takeIf { it.isNotBlank() })
+                            val success = userManager.registerUser(nickname, phone, email.takeIf { it.isNotBlank() })
                             isRegistering = false
                             
                             if (success) {
@@ -135,12 +145,20 @@ fun UserRegistrationScreen(
                             } else {
                                 registrationMessage = "注册失败，请重试。"
                             }
-                        } else {
+                        } else if (nickname.isBlank()) {
                             registrationMessage = "请输入昵称"
+                        } else if (phone.isBlank()) {
+                            registrationMessage = "请输入手机号"
                         }
                     },
-                    enabled = !isRegistering && nickname.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth()
+                    enabled = !isRegistering && nickname.isNotBlank() && phone.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF424242),
+                        contentColor = Color.White,
+                        disabledContainerColor = Color(0xFFBDBDBD),
+                        disabledContentColor = Color(0xFF757575)
+                    )
                 ) {
                     if (isRegistering) {
                         CircularProgressIndicator(
@@ -153,25 +171,25 @@ fun UserRegistrationScreen(
                 }
                 
                 if (registrationMessage.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = registrationMessage,
                         color = if (registrationMessage.contains("成功")) 
-                            MaterialTheme.colorScheme.primary 
+                            Color(0xFF424242)
                         else 
-                            MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium
+                            Color(0xFF424242),
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             } else {
                 // 已注册用户显示信息
                 Text(
                     text = "您已经是注册用户",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color(0xFF424242)
                 )
                 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 
                 Text(
                     text = "昵称: ${currentUser?.nickname ?: "未设置"}",
@@ -192,11 +210,15 @@ fun UserRegistrationScreen(
                     )
                 }
                 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 
                 Button(
                     onClick = onRegistrationComplete,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF424242),
+                        contentColor = Color.White
+                    )
                 ) {
                     Text("继续使用")
                 }

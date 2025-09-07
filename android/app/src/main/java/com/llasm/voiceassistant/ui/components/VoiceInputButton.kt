@@ -17,7 +17,11 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.llasm.voiceassistant.R
 
 @Composable
 fun VoiceInputButton(
@@ -50,9 +54,9 @@ fun VoiceInputButton(
         label = "alpha"
     )
     
-    // 颜色动画 - 更快的响应
+    // 颜色动画 - 黑白灰配色
     val backgroundColor by animateColorAsState(
-        targetValue = if (isRecording) Color(0xFFE53E3E) else Color(0xFF3182CE),
+        targetValue = if (isRecording) Color(0xFF424242) else Color(0xFF757575),
         animationSpec = tween(150),
         label = "backgroundColor"
     )
@@ -75,7 +79,7 @@ fun VoiceInputButton(
                     .size(68.dp)
                     .scale(scale)
                     .background(
-                        color = Color(0xFFE53E3E).copy(alpha = alpha * 0.4f),
+                        color = Color(0xFF424242).copy(alpha = alpha * 0.4f),
                         shape = CircleShape
                     )
             )
@@ -86,7 +90,7 @@ fun VoiceInputButton(
                     .size(60.dp)
                     .scale(scale * 0.9f)
                     .background(
-                        color = Color(0xFFE53E3E).copy(alpha = alpha * 0.6f),
+                        color = Color(0xFF424242).copy(alpha = alpha * 0.6f),
                         shape = CircleShape
                     )
             )
@@ -95,10 +99,14 @@ fun VoiceInputButton(
         // 主按钮
         FloatingActionButton(
             onClick = {
-                if (isRecording) {
-                    onStopRecording()
-                } else {
-                    onStartRecording()
+                try {
+                    if (isRecording) {
+                        onStopRecording()
+                    } else {
+                        onStartRecording()
+                    }
+                } catch (e: Exception) {
+                    // 处理点击异常
                 }
             },
             modifier = Modifier
@@ -126,22 +134,30 @@ fun VoiceInputButton(
             ) {
                 // 图标切换
                 if (isRecording) {
-                    // 录制状态：方框式录音标志
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .background(
-                                color = Color.White,
-                                shape = RoundedCornerShape(4.dp)
+                    // 录制状态：音波图标（使用简单的矩形条表示音波）
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        repeat(3) { index ->
+                            Box(
+                                modifier = Modifier
+                                    .width(3.dp)
+                                    .height(if (index == 1) 20.dp else 12.dp)
+                                    .background(
+                                        color = Color.White,
+                                        shape = RoundedCornerShape(1.5.dp)
+                                    )
                             )
-                    )
+                        }
+                    }
                 } else {
                     // 待机状态：麦克风图标
-                    Text(
-                        text = "🎤",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Color.White,
-                        modifier = Modifier.scale(1.1f)
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_microphone),
+                        contentDescription = "开始录音",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }

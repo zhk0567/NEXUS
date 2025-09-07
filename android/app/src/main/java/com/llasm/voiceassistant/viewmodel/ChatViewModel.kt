@@ -125,14 +125,19 @@ class ChatViewModel : ViewModel() {
         
         viewModelScope.launch {
             try {
+                android.util.Log.d("ChatViewModel", "Testing connection...")
                 val apiService = NetworkModule.getApiService()
+                android.util.Log.d("ChatViewModel", "API service created, making health check request...")
                 val response = apiService.healthCheck()
+                android.util.Log.d("ChatViewModel", "Health check response: ${response.code()}")
+                
                 if (response.isSuccessful) {
                     _error.value = "✅ 连接成功！后端服务运行正常"
                 } else {
                     _error.value = "❌ 连接失败: HTTP ${response.code()}"
                 }
             } catch (e: Exception) {
+                android.util.Log.e("ChatViewModel", "Connection test failed", e)
                 _error.value = "❌ 连接失败: ${e.message}"
             } finally {
                 _isLoading.value = false
@@ -141,7 +146,11 @@ class ChatViewModel : ViewModel() {
     }
     
     fun initializeVoiceService(context: Context) {
-        voiceService = VoiceService(context)
+        try {
+            voiceService = VoiceService(context)
+        } catch (e: Exception) {
+            _error.value = "语音服务初始化失败: ${e.message}"
+        }
     }
     
     fun initializeUserManager(context: Context) {
@@ -154,35 +163,47 @@ class ChatViewModel : ViewModel() {
     fun startVoiceRecording() {
         if (_isRecording.value) return
         
-        voiceService?.startVoiceRecording(
-            onRecordingStarted = {
-                _isRecording.value = true
-            },
-            onRecordingStopped = {
-                _isRecording.value = false
-            },
-            onError = { error ->
-                _isRecording.value = false
-                _error.value = "录音失败: ${error.message}"
-            }
-        )
+        try {
+            voiceService?.startVoiceRecording(
+                onRecordingStarted = {
+                    _isRecording.value = true
+                },
+                onError = { error ->
+                    _isRecording.value = false
+                    _error.value = "录音失败: ${error.message}"
+                }
+            )
+        } catch (e: Exception) {
+            _isRecording.value = false
+            _error.value = "录音启动异常: ${e.message}"
+        }
     }
     
     fun stopVoiceRecording() {
         if (!_isRecording.value) return
         
-        voiceService?.stopVoiceRecording(
-            onTranscriptionComplete = { transcription ->
-                _isRecording.value = false
-                if (transcription.isNotBlank()) {
-                    sendMessage(transcription)
+        try {
+            voiceService?.stopVoiceRecording(
+                onTranscriptionComplete = { transcription ->
+                    _isRecording.value = false
+                    if (transcription.isNotBlank()) {
+                        sendMessage(transcription)
+                    }
+                },
+                onError = { error ->
+                    _isRecording.value = false
+                    // 检查是否是录音时长不足的错误
+                    if (error.message?.contains("录音时间太短") == true) {
+                        _error.value = error.message
+                    } else {
+                        _error.value = "语音识别失败: ${error.message}"
+                    }
                 }
-            },
-            onError = { error ->
-                _isRecording.value = false
-                _error.value = "语音识别失败: ${error.message}"
-            }
-        )
+            )
+        } catch (e: Exception) {
+            _isRecording.value = false
+            _error.value = "录音停止异常: ${e.message}"
+        }
     }
     
     fun playTextToSpeech(text: String) {

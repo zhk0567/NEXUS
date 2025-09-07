@@ -15,7 +15,14 @@ object NetworkModule {
     
     // 动态获取可用的基础URL
     private suspend fun getBaseUrl(): String {
-        return NetworkTester.findWorkingUrl() ?: "http://10.0.2.2:5000/"
+        val workingUrl = NetworkTester.findWorkingUrl()
+        if (workingUrl != null) {
+            android.util.Log.d("NetworkModule", "Using working URL: $workingUrl")
+            return workingUrl
+        } else {
+            android.util.Log.w("NetworkModule", "No working URL found, using fallback: http://172.25.154.232:5000/")
+            return "http://192.168.215.85:5000/"
+        }
     }
     
     private val loggingInterceptor = HttpLoggingInterceptor().apply {

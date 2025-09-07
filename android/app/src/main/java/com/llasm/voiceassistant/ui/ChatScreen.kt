@@ -1,6 +1,8 @@
 package com.llasm.voiceassistant.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,14 +13,19 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,6 +44,7 @@ fun ChatScreen(
     var inputText by remember { mutableStateOf("") }
     var showUserRegistration by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -64,155 +72,205 @@ fun ChatScreen(
                     )
                 )
             ),
-        topBar = {
-            // 标题栏
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "NEXUS",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text(
-                        text = "智能AI对话体验",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    
-                    // 显示用户状态
-                    currentUser?.let { user ->
-                        Text(
-                            text = if (user.isRegistered) "用户ID统计" else "设备ID统计",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (user.isRegistered) 
-                                MaterialTheme.colorScheme.primary 
-                            else 
-                                MaterialTheme.colorScheme.secondary
-                        )
-                    }
-                }
-                
-                IconButton(
-                    onClick = { 
-                        showUserRegistration = true
-                        println("Settings button clicked! showUserRegistration = $showUserRegistration")
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "用户设置"
-                    )
-                }
-            }
-        },
-        bottomBar = {
-            // 输入框和语音按钮
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(4.dp, RoundedCornerShape(16.dp)),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // 文本输入框
-                    OutlinedTextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        placeholder = { Text("输入消息...") },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            lineHeight = 20.sp
-                        ),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            cursorColor = MaterialTheme.colorScheme.primary,
-                            focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    )
-                    
-                    Spacer(modifier = Modifier.width(12.dp))
-                    
-                    // 语音输入按钮
-                    VoiceInputButton(
-                        isRecording = isRecording,
-                        onStartRecording = { viewModel.startVoiceRecording() },
-                        onStopRecording = { viewModel.stopVoiceRecording() },
-                        modifier = Modifier.size(56.dp)
-                    )
-                    
-                    Spacer(modifier = Modifier.width(8.dp))
-                    
-                    // 发送/停止按钮
-                    FloatingActionButton(
-                        onClick = {
-                            if (isLoading) {
-                                // 如果正在加载，点击停止请求
-                                viewModel.cancelCurrentRequest()
-                            } else if (inputText.isNotBlank()) {
-                                // 如果不在加载且有输入内容，发送消息
-                                viewModel.sendMessage(inputText)
-                                inputText = ""
-                            }
-                        },
-                        modifier = Modifier.size(56.dp),
-                        containerColor = if (isLoading) 
-                            MaterialTheme.colorScheme.error 
-                        else 
-                            MaterialTheme.colorScheme.primary
-                    ) {
-                        Icon(
-                            imageVector = if (isLoading) Icons.Default.Close else Icons.Default.Send,
-                            contentDescription = if (isLoading) "停止" else "发送",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-                }
-            }
-        }
+         topBar = {
+             // 标题栏 - 透明背景
+             Row(
+                 modifier = Modifier
+                     .fillMaxWidth()
+                     .padding(horizontal = 16.dp, vertical = 12.dp),
+                 horizontalArrangement = Arrangement.SpaceBetween,
+                 verticalAlignment = Alignment.CenterVertically
+             ) {
+                 // 左上角新话题按钮
+                 IconButton(
+                     onClick = { 
+                         // 开启新话题 - 清空消息列表
+                         viewModel.clearMessages()
+                         focusManager.clearFocus()
+                     }
+                 ) {
+                     Icon(
+                         imageVector = Icons.Default.Add,
+                         contentDescription = "新话题",
+                         tint = Color(0xFF424242)
+                     )
+                 }
+                 
+                 // 右上角设置按钮
+                 IconButton(
+                     onClick = { 
+                         showUserRegistration = true
+                         println("Settings button clicked! showUserRegistration = $showUserRegistration")
+                     }
+                 ) {
+                     Icon(
+                         imageVector = Icons.Default.Settings,
+                         contentDescription = "用户设置",
+                         tint = Color(0xFF424242)
+                     )
+                 }
+             }
+         },
+         bottomBar = {
+             // 输入框和语音按钮 - 降低高度
+             Card(
+                 modifier = Modifier
+                     .fillMaxWidth()
+                     .shadow(2.dp, RoundedCornerShape(8.dp)),
+                 colors = CardDefaults.cardColors(
+                     containerColor = MaterialTheme.colorScheme.surface
+                 ),
+                 shape = RoundedCornerShape(8.dp)
+             ) {
+                 Row(
+                     modifier = Modifier
+                         .fillMaxWidth()
+                         .padding(12.dp),
+                     verticalAlignment = Alignment.CenterVertically
+                 ) {
+                     // 文本输入框 - 半圆角，增大尺寸
+                     OutlinedTextField(
+                         value = inputText,
+                         onValueChange = { inputText = it },
+                         placeholder = { 
+                             Text(
+                                 text = "输入消息...",
+                                 style = MaterialTheme.typography.bodyMedium.copy(
+                                     fontSize = 18.sp,
+                                     lineHeight = 28.sp
+                                 )
+                             ) 
+                         },
+                         modifier = Modifier
+                             .weight(1f)
+                             .height(56.dp),
+                         singleLine = true,
+                         textStyle = MaterialTheme.typography.bodyMedium.copy(
+                             lineHeight = 28.sp,
+                             fontSize = 18.sp
+                         ),
+                         shape = RoundedCornerShape(28.dp), // 半圆角
+                         colors = OutlinedTextFieldDefaults.colors(
+                             focusedTextColor = Color(0xFF212121),
+                             unfocusedTextColor = Color(0xFF212121),
+                             cursorColor = Color(0xFF424242),
+                             focusedPlaceholderColor = Color(0xFF9E9E9E),
+                             unfocusedPlaceholderColor = Color(0xFF9E9E9E),
+                             focusedBorderColor = Color(0xFF424242),
+                             unfocusedBorderColor = Color(0xFFBDBDBD)
+                         )
+                     )
+                     
+                     Spacer(modifier = Modifier.width(8.dp))
+                     
+                     // 语音输入按钮 - 增大尺寸
+                     VoiceInputButton(
+                         isRecording = isRecording,
+                         onStartRecording = { viewModel.startVoiceRecording() },
+                         onStopRecording = { viewModel.stopVoiceRecording() },
+                         modifier = Modifier.size(56.dp)
+                     )
+                     
+                     Spacer(modifier = Modifier.width(8.dp))
+                     
+                     // 发送/停止按钮 - 增大尺寸
+                     FloatingActionButton(
+                         onClick = {
+                             if (isLoading) {
+                                 // 如果正在加载，点击停止请求
+                                 viewModel.cancelCurrentRequest()
+                             } else if (inputText.isNotBlank()) {
+                                 // 如果不在加载且有输入内容，发送消息
+                                 viewModel.sendMessage(inputText)
+                                 inputText = ""
+                             }
+                         },
+                         modifier = Modifier.size(56.dp),
+                         containerColor = when {
+                             isLoading -> Color(0xFF424242) // 深灰色
+                             inputText.isNotBlank() -> Color(0xFF424242) // 深灰色
+                             else -> Color(0xFFBDBDBD) // 浅灰色（禁用状态）
+                         },
+                     ) {
+                         Icon(
+                             imageVector = if (isLoading) Icons.Default.Close else Icons.Default.Send,
+                             contentDescription = if (isLoading) "停止" else "发送",
+                             tint = if (isLoading || inputText.isNotBlank()) Color.White else Color(0xFF757575),
+                             modifier = Modifier.size(28.dp)
+                         )
+                     }
+                 }
+             }
+         }
     ) { paddingValues ->
-        // 聊天消息列表
-        LazyColumn(
+        // 聊天消息列表 - 添加可点击背景来取消焦点
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(vertical = 16.dp)
-        ) {
-            items(messages) { message ->
-                ChatMessageItem(message = message)
-            }
-            
-            if (isLoading) {
-                item {
-                    LoadingMessage()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
                 }
-            }
-            
-            if (error != null) {
-                item {
-                    ErrorMessage(error = error!!)
+        ) {
+            // 如果消息列表为空，显示中央标题
+            if (messages.isEmpty() && !isLoading && error == null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                        .offset(y = (-40).dp), // 上移40dp，调整视觉中心
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "NEXUS",
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            brush = Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF667eea), // 优雅蓝紫色
+                                    Color(0xFF764ba2), // 深紫色
+                                    Color(0xFFf093fb), // 粉紫色
+                                    Color(0xFFf5576c)  // 珊瑚红
+                                ),
+                                start = Offset(0f, 0f),
+                                end = Offset(1000f, 1000f)
+                            )
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "智能AI对话体验",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color(0xFF757575)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp)
+                ) {
+                    items(messages) { message ->
+                        ChatMessageItem(message = message)
+                    }
+                
+                if (isLoading) {
+                    item {
+                        LoadingMessage()
+                    }
+                }
+                
+                if (error != null) {
+                    item {
+                        ErrorMessage(error = error!!)
+                    }
+                }
                 }
             }
         }
