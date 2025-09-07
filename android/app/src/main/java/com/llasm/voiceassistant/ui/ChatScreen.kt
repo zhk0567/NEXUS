@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -162,20 +163,27 @@ fun ChatScreen(
                     
                     Spacer(modifier = Modifier.width(8.dp))
                     
-                    // 发送按钮
+                    // 发送/停止按钮
                     FloatingActionButton(
                         onClick = {
-                            if (inputText.isNotBlank()) {
+                            if (isLoading) {
+                                // 如果正在加载，点击停止请求
+                                viewModel.cancelCurrentRequest()
+                            } else if (inputText.isNotBlank()) {
+                                // 如果不在加载且有输入内容，发送消息
                                 viewModel.sendMessage(inputText)
                                 inputText = ""
                             }
                         },
                         modifier = Modifier.size(56.dp),
-                        containerColor = MaterialTheme.colorScheme.primary
+                        containerColor = if (isLoading) 
+                            MaterialTheme.colorScheme.error 
+                        else 
+                            MaterialTheme.colorScheme.primary
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "发送",
+                            imageVector = if (isLoading) Icons.Default.Close else Icons.Default.Send,
+                            contentDescription = if (isLoading) "停止" else "发送",
                             tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }

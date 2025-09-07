@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 class ChatViewModel : ViewModel() {
     
@@ -32,9 +33,13 @@ class ChatViewModel : ViewModel() {
     
     private var voiceService: VoiceService? = null
     private var userManager: UserManager? = null
+    private var currentRequestJob: Job? = null
     
     fun sendMessage(content: String) {
         if (content.isBlank()) return
+        
+        // 如果已有请求在进行中，先取消
+        currentRequestJob?.cancel()
         
         val userMessage = ChatMessage(
             content = content.trim(),
@@ -45,7 +50,7 @@ class ChatViewModel : ViewModel() {
         _isLoading.value = true
         _error.value = null
         
-        viewModelScope.launch {
+        currentRequestJob = viewModelScope.launch {
             try {
                 val apiService = NetworkModule.getApiService()
                 
@@ -88,11 +93,22 @@ class ChatViewModel : ViewModel() {
                     _error.value = "网络请求失败: ${response.code()}"
                 }
             } catch (e: Exception) {
+                if (e.message?.contains("CancellationException") == true) {
+                    // 请求被取消，不显示错误
+                    return@launch
+                }
                 _error.value = "连接失败: ${e.message}"
             } finally {
                 _isLoading.value = false
+                currentRequestJob = null
             }
         }
+    }
+    
+    fun cancelCurrentRequest() {
+        currentRequestJob?.cancel()
+        _isLoading.value = false
+        _error.value = "请求已取消"
     }
     
     fun clearError() {
@@ -187,6 +203,7 @@ class ChatViewModel : ViewModel() {
     
     override fun onCleared() {
         super.onCleared()
+        currentRequestJob?.cancel()
         voiceService?.release()
     }
 }
