@@ -67,7 +67,7 @@ conda activate llasm
 
 3. **安装后端依赖**
 ```bash
-pip install -r requirements_backend.txt
+pip install -r requirements.txt
 ```
 
 4. **配置数据库**
@@ -93,9 +93,8 @@ NEXUS/
 ├── start_nexus.py                    # 🚀 一键启动脚本
 ├── high_performance_backend.py       # 核心后端服务
 ├── mysql_config.py                   # 数据库配置
-├── requirements_backend.txt          # 后端依赖
+├── requirements.txt                  # 项目依赖
 ├── data_analysis.py                  # 📊 数据分析工具
-├── requirements_analysis.txt         # 分析工具依赖
 ├── nexus_comprehensive_dashboard.html # 📊 综合仪表板
 ├── models/                           # AI模型文件
 │   └── vosk/
@@ -151,7 +150,7 @@ curl -X POST http://localhost:5000/api/tts \
 ### 快速使用
 ```bash
 # 安装分析依赖
-pip install -r requirements_analysis.txt
+pip install -r requirements.txt
 
 # 设置数据库
 python mysql_config.py
@@ -214,7 +213,7 @@ DEBUG = False
 1. **环境设置**
 ```bash
 conda activate llasm
-pip install -r requirements_backend.txt
+pip install -r requirements.txt
 ```
 
 2. **数据库初始化**
@@ -313,5 +312,4 @@ cd android
 ✅ **易于部署** - 一键启动脚本和详细文档  
 ✅ **开源免费** - MIT许可证，完全开源  
 
-NEXUS致力于为用户提供最优质的AI对话体验，通过持续的技术创新和优化，打造智能、高效、易用的语音交互系统。#   N E X U S  
- 
+NEXUS致力于为用户提供最优质的AI对话体验，通过持续的技术创新和优化，打造智能、高效、易用的语音交互系统。
