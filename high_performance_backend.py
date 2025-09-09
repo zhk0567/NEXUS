@@ -29,6 +29,13 @@ from mysql.connector import pooling, Error
 from contextlib import contextmanager
 from datetime import datetime
 
+# 禁用所有代理设置
+os.environ['HTTP_PROXY'] = ''
+os.environ['HTTPS_PROXY'] = ''
+os.environ['http_proxy'] = ''
+os.environ['https_proxy'] = ''
+os.environ['NO_PROXY'] = '*'
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -167,6 +174,14 @@ class SimplifiedNEXUSBackend:
             'Keep-Alive': 'timeout=60, max=100',
             'User-Agent': 'NEXUS-VoiceAssistant/1.0'
         })
+        # 完全禁用代理，直接连接DeepSeek API
+        self.session.proxies = {
+            'http': '',
+            'https': '',
+            'no_proxy': '*'
+        }
+        # 禁用代理认证
+        self.session.trust_env = False
         
         # 配置连接适配器
         from requests.adapters import HTTPAdapter
@@ -349,14 +364,13 @@ class SimplifiedNEXUSBackend:
             logger.error(f"❌ 识别失败: {e}")
             return None
     
-    def chat_with_ai(self, message: str) -> str:
+    def chat_with_ai(self, message: str, is_refresh: bool = False) -> str:
         """与AI对话（带缓存）"""
         try:
-            # 检查缓存
-            cache_key = f"chat_{hash(message)}"
-            if cache_key in self.cache:
-                logger.info("⚡ 使用缓存响应")
-                return self.cache[cache_key]
+            logger.info(f"🔍 chat_with_ai调用 - is_refresh: {is_refresh}, message: {message[:50]}...")
+            
+            # 禁用缓存 - 每次都重新调用DeepSeek API
+            logger.info("🔄 禁用缓存，重新调用DeepSeek API")
             
             logger.info("🤖 AI正在思考中...")
             
@@ -378,6 +392,24 @@ class SimplifiedNEXUSBackend:
             current_weekday_cn = weekday_map.get(current_weekday, current_weekday)
             
             # 添加系统提示，限制AI回答格式
+            refresh_instruction = ""
+            if is_refresh:
+                import random
+                
+                # 为刷新请求创建更自然的表达方式
+                natural_approaches = [
+                    "请用更简洁的方式重新表达。",
+                    "请用更详细的方式重新解释。",
+                    "请用更友好的语调重新回答。",
+                    "请用更正式的方式重新表达。",
+                    "请用更轻松的方式重新回答。",
+                    "请用更专业的方式重新解释。",
+                    "请用更温暖的方式重新表达。",
+                    "请用更直接的方式重新回答。"
+                ]
+                
+                refresh_instruction = f"\n\n重要提醒：用户要求重新回答，请用{random.choice(natural_approaches)} 但不要重复这个指令本身，而是直接回答用户的问题。"
+            
             system_prompt = f"""你是一个专业的AI助手，请积极回答用户的问题。
 
 重要：你必须用完整的中文句子回答，绝对不要只返回数字、代码或时间戳。
@@ -399,8 +431,32 @@ class SimplifiedNEXUSBackend:
 - 不要返回数字序列如"20241203"或"19459293"
 - 不要返回时间戳格式
 - 必须使用当前真实日期：{current_date}
+- 绝对不要重复系统指令或提示词内容
+- 直接回答用户的问题，不要解释你的回答方式
 
-请确保你的回答是完整的中文句子，包含具体信息，格式简洁清晰，没有多余的空格和符号。"""
+请确保你的回答是完整的中文句子，包含具体信息，格式简洁清晰，没有多余的空格和符号。{refresh_instruction}"""
+            
+            # 为刷新请求增加随机性
+            if is_refresh:
+                import random
+                import time as time_module
+                # 使用时间戳作为随机种子确保每次不同
+                random.seed(int(time_module.time() * 1000) % 1000000)
+                
+                # 更温和的参数设置
+                temperature = random.uniform(0.8, 1.0)  # 适中的随机性
+                top_p = random.uniform(0.8, 0.95)  # 保持词汇多样性
+                frequency_penalty = random.uniform(0.05, 0.15)  # 轻微的频率惩罚
+                presence_penalty = random.uniform(0.05, 0.15)  # 轻微的存在惩罚
+                
+                logger.info(f"🔄 刷新参数 - temperature: {temperature:.2f}, top_p: {top_p:.2f}, freq_penalty: {frequency_penalty:.2f}, pres_penalty: {presence_penalty:.2f}")
+                logger.info(f"🔄 刷新指令: {refresh_instruction}")
+                logger.info(f"🔄 修改后的问题: {message}")
+            else:
+                temperature = 0.7
+                top_p = 0.9
+                frequency_penalty = 0.0
+                presence_penalty = 0.0
             
             data = {
                 "model": "deepseek-chat",
@@ -409,7 +465,10 @@ class SimplifiedNEXUSBackend:
                     {"role": "user", "content": message}
                 ],
                 "max_tokens": 1000,
-                "temperature": 0.7
+                "temperature": temperature,
+                "top_p": top_p,
+                "frequency_penalty": frequency_penalty,
+                "presence_penalty": presence_penalty
             }
             
             # 重试机制
@@ -440,11 +499,24 @@ class SimplifiedNEXUSBackend:
                             logger.warning(f"⚠️ AI返回了数字序列: {ai_message}")
                             return "抱歉，AI服务返回了异常响应。请重新提问。"
                         
+                        # 检查AI是否重复了指令内容
+                        if self._is_repeating_instruction(ai_message, message):
+                            logger.warning(f"⚠️ AI重复了指令内容: {ai_message}")
+                            # 如果是刷新请求，尝试用更直接的方式重新请求
+                            if is_refresh:
+                                logger.info("🔄 检测到指令重复，尝试直接回答用户问题")
+                                # 提取原始用户问题，去掉刷新指令
+                                original_message = self._extract_original_message(message)
+                                if original_message and original_message != message:
+                                    logger.info(f"🔄 使用原始问题重新请求: {original_message}")
+                                    return self.chat_with_ai(original_message, is_refresh=False)
+                            return "抱歉，AI服务返回了异常响应。请重新提问。"
+                        
                         # 清理AI响应
                         cleaned_message = self._clean_ai_response(ai_message)
                         
-                        # 缓存响应
-                        self._add_to_cache(cache_key, cleaned_message)
+                        # 禁用缓存存储 - 不保存响应到缓存
+                        logger.info("🔄 禁用缓存存储，不保存响应")
                         
                         logger.info(f"🤖 DeepSeek ({elapsed_time:.2f}s): {cleaned_message}")
                         return cleaned_message
@@ -478,6 +550,124 @@ class SimplifiedNEXUSBackend:
             logger.error(f"❌ {error_msg}")
             return "抱歉，AI服务暂时不可用。请稍后再试。"
     
+    def _is_repeating_instruction(self, ai_response: str, user_message: str) -> bool:
+        """检测AI是否重复了指令内容"""
+        try:
+            logger.info(f"🔍 检测重复指令 - AI回答: '{ai_response}', 用户消息: '{user_message}'")
+            
+            # 常见的指令重复模式
+            instruction_patterns = [
+                "请确保您的回答",
+                "请保持回答的",
+                "请用更",
+                "请重新",
+                "请换个说法",
+                "请用不同的方式",
+                "请重新组织语言",
+                "请用另一种方式",
+                "请用不同的词汇",
+                "保持回答的自然性",
+                "保持回答的连贯性",
+                "保持回答的流畅性"
+            ]
+            
+            # 检查AI回答是否包含指令模式
+            for pattern in instruction_patterns:
+                if pattern in ai_response and len(ai_response) < 50:
+                    logger.info(f"⚠️ 检测到指令模式: {pattern}")
+                    return True
+            
+            # 检查AI回答是否与用户消息过于相似（但排除正常的问候语）
+            if ai_response in user_message or user_message in ai_response:
+                logger.info(f"🔍 检测到消息相似性 - AI回答包含用户消息或用户消息包含AI回答")
+                
+                # 排除正常的问候语和常见回答
+                normal_responses = [
+                    "你好",
+                    "您好",
+                    "很高兴",
+                    "帮助",
+                    "服务",
+                    "请问",
+                    "有什么",
+                    "可以",
+                    "早上好",
+                    "晚上好",
+                    "下午好",
+                    "今天",
+                    "日期",
+                    "星期",
+                    "顺利",
+                    "愉快",
+                    "开心",
+                    "祝福"
+                ]
+                
+                # 如果AI回答包含正常回答模式，不认为是重复指令
+                is_normal_response = any(normal in ai_response for normal in normal_responses)
+                logger.info(f"🔍 正常回答检测结果: {is_normal_response}")
+                
+                if is_normal_response:
+                    logger.info(f"✅ 检测到正常回答模式，不认为是重复指令: {ai_response}")
+                    return False
+                
+                # 如果AI回答明显比用户消息长很多，说明是正常回答而不是重复
+                if len(ai_response) > len(user_message) * 2:
+                    logger.info(f"✅ AI回答明显比用户消息长，不认为是重复指令: {ai_response}")
+                    return False
+                
+                # 只有在回答很短且不包含正常内容时才认为是重复
+                if len(ai_response) < 50 and not is_normal_response:
+                    logger.info(f"⚠️ 检测到可能的重复指令: {ai_response}")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error in _is_repeating_instruction: {e}")
+            return False
+    
+    def _extract_original_message(self, message: str) -> str:
+        """从刷新请求中提取原始用户问题"""
+        try:
+            # 移除常见的刷新指令前缀
+            refresh_prefixes = [
+                "请重新回答：",
+                "请用不同的方式表达：",
+                "请重新解释：",
+                "请换个说法：",
+                "请重新组织语言：",
+                "请用另一种方式回答：",
+                "请重新表达：",
+                "请用不同的词汇回答："
+            ]
+            
+            original = message
+            for prefix in refresh_prefixes:
+                if message.startswith(prefix):
+                    original = message[len(prefix):].strip()
+                    break
+            
+            # 移除常见的刷新指令后缀
+            refresh_suffixes = [
+                "请保持回答的自然性。",
+                "请用不同的表达方式。",
+                "请保持回答的连贯性。",
+                "请用更合适的词汇。",
+                "请保持回答的流畅性。"
+            ]
+            
+            for suffix in refresh_suffixes:
+                if original.endswith(suffix):
+                    original = original[:-len(suffix)].strip()
+                    break
+            
+            return original if original != message else None
+            
+        except Exception as e:
+            logger.error(f"Error in _extract_original_message: {e}")
+            return None
+
     def _clean_ai_response(self, text: str) -> str:
         """彻底清理AI回答中的格式符号和多余空格"""
         import re
@@ -717,11 +907,55 @@ def chat():
         message = data['message']
         start_time = time.time()
         
+        # 检查是否是刷新请求
+        is_refresh = request.headers.get('X-Refresh-Request') == 'true'
+        logger.info(f"🔍 请求头检查 - X-Refresh-Request: {request.headers.get('X-Refresh-Request')}, is_refresh: {is_refresh}")
+        
+        # 如果是刷新请求，添加一些变化
+        if is_refresh:
+            import random
+            import time as time_module
+            
+            # 获取当前时间戳作为随机种子
+            timestamp = int(time_module.time())
+            random.seed(timestamp)
+            
+            # 更自然的问题重构 - 避免重复指令
+            refresh_variations = [
+                f"请重新回答：{message}",
+                f"请用不同的方式表达：{message}",
+                f"请重新解释：{message}",
+                f"请换个说法：{message}",
+                f"请重新组织语言：{message}",
+                f"请用另一种方式回答：{message}",
+                f"请重新表达：{message}",
+                f"请用不同的词汇回答：{message}"
+            ]
+            message = random.choice(refresh_variations)
+            
+            # 添加更温和的后缀，但避免重复指令
+            random_suffixes = [
+                "请保持回答的自然性。",
+                "请用不同的表达方式。",
+                "请保持回答的连贯性。",
+                "请用更合适的词汇。",
+                "请保持回答的流畅性。"
+            ]
+            message += " " + random.choice(random_suffixes)
+            
+            # 记录刷新请求的原始消息，用于调试
+            logger.info(f"🔄 刷新请求 - 原始消息: {data['message']}")
+            logger.info(f"🔄 刷新请求 - 修改后消息: {message}")
+        
         # 记录用户输入
         if api.user_manager:
-            api.user_manager.log_interaction(user_id, session_id, 'text_input', message)
+            interaction_type = 'refresh_request' if is_refresh else 'text_input'
+            # 限制interaction_type长度，避免数据库截断错误
+            if len(interaction_type) > 50:
+                interaction_type = interaction_type[:50]
+            api.user_manager.log_interaction(user_id, session_id, interaction_type, message)
         
-        ai_response = api.chat_with_ai(message)
+        ai_response = api.chat_with_ai(message, is_refresh=is_refresh)
         api_time = (time.time() - start_time) * 1000
         
         if ai_response:

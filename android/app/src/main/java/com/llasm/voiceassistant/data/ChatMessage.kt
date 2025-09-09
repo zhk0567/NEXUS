@@ -7,7 +7,8 @@ data class ChatMessage(
     val content: String,
     val isUser: Boolean,
     val timestamp: Date = Date(),
-    val messageType: MessageType = MessageType.TEXT
+    val messageType: MessageType = MessageType.TEXT,
+    val isPlaying: Boolean = false
 )
 
 enum class MessageType {

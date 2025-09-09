@@ -14,12 +14,21 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -35,6 +44,7 @@ import com.llasm.voiceassistant.data.MessageType
 import com.llasm.voiceassistant.ui.components.VoiceInputButton
 import com.llasm.voiceassistant.viewmodel.ChatViewModel
 import com.llasm.voiceassistant.identity.UserManager
+import com.llasm.voiceassistant.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +53,7 @@ fun ChatScreen(
 ) {
     var inputText by remember { mutableStateOf("") }
     var showUserRegistration by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     
@@ -50,11 +61,14 @@ fun ChatScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val playingMessageId by viewModel.playingMessageId.collectAsStateWithLifecycle()
 
     // 初始化语音服务和用户管理
     LaunchedEffect(Unit) {
         viewModel.initializeVoiceService(context)
         viewModel.initializeUserManager(context)
+        viewModel.initializeHistoryManager(context)
     }
     
     // 获取用户管理器
@@ -81,19 +95,41 @@ fun ChatScreen(
                  horizontalArrangement = Arrangement.SpaceBetween,
                  verticalAlignment = Alignment.CenterVertically
              ) {
-                 // 左上角新话题按钮
-                 IconButton(
-                     onClick = { 
-                         // 开启新话题 - 清空消息列表
-                         viewModel.clearMessages()
-                         focusManager.clearFocus()
-                     }
+                 // 左上角图标组
+                 Row(
+                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                     verticalAlignment = Alignment.CenterVertically
                  ) {
-                     Icon(
-                         imageVector = Icons.Default.Add,
-                         contentDescription = "新话题",
-                         tint = Color(0xFF424242)
-                     )
+                     // 历史记录按钮
+                     IconButton(
+                         onClick = { 
+                             showHistory = true
+                         }
+                     ) {
+                         Image(
+                             painter = painterResource(id = R.drawable.ic_history),
+                             contentDescription = "历史记录",
+                             modifier = Modifier.size(24.dp)
+                         )
+                     }
+                     
+                     // 新话题按钮
+                     IconButton(
+                         onClick = { 
+                             // 保存当前对话到历史记录
+                             viewModel.saveCurrentConversation()
+                             // 开启新话题 - 清空消息列表
+                             viewModel.clearMessages()
+                             focusManager.clearFocus()
+                         }
+                     ) {
+                         Icon(
+                             imageVector = Icons.Default.Add,
+                             contentDescription = "新话题",
+                             tint = Color(0xFF424242),
+                             modifier = Modifier.size(24.dp)
+                         )
+                     }
                  }
                  
                  // 右上角设置按钮
@@ -257,7 +293,12 @@ fun ChatScreen(
                     contentPadding = PaddingValues(vertical = 16.dp)
                 ) {
                     items(messages) { message ->
-                        ChatMessageItem(message = message)
+                        ChatMessageItem(
+                            message = message,
+                            viewModel = viewModel,
+                            isLoading = isLoading,
+                            playingMessageId = playingMessageId
+                        )
                     }
                 
                 if (isLoading) {
@@ -296,36 +337,53 @@ fun ChatScreen(
             }
         )
     }
+    
+    // 历史记录对话框
+    if (showHistory) {
+        HistoryScreen(
+            viewModel = viewModel,
+            onBackClick = { showHistory = false }
+        )
+    }
 }
 
 @Composable
-fun ChatMessageItem(message: ChatMessage) {
+fun ChatMessageItem(
+    message: ChatMessage,
+    viewModel: ChatViewModel,
+    isLoading: Boolean,
+    playingMessageId: String?
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
     ) {
         if (!message.isUser) {
-            // AI头像
-            Card(
+            // AI头像 - 使用Canvas绘制完美圆形
+            val primaryColor = MaterialTheme.colorScheme.primary
+            val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
+            
+            Box(
                 modifier = Modifier
-                    .size(32.dp)
-                    .padding(end = 8.dp),
-                shape = CircleShape,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
+                    .size(40.dp)
+                    .padding(end = 8.dp, top = 8.dp)
+                    .drawWithContent {
+                        // 绘制圆形背景
+                        drawCircle(
+                            color = primaryColor,
+                            radius = size.minDimension / 2f
+                        )
+                        // 绘制内容
+                        drawContent()
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "AI",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(
+                    text = "AI",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = onPrimaryColor,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
         
@@ -359,45 +417,91 @@ fun ChatMessageItem(message: ChatMessage) {
                         MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 
-                // 语音播放按钮（仅AI消息）
+                // 语音播放和刷新按钮（仅AI消息）
                 if (!message.isUser) {
                     Spacer(modifier = Modifier.height(8.dp))
                     
-                    Button(
-                        onClick = { /* 播放语音 */ },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(32.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (message.isUser) 
-                                MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f)
-                            else 
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val textColor = if (message.isUser) 
-                            MaterialTheme.colorScheme.onPrimary 
-                        else 
-                            MaterialTheme.colorScheme.primary
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
+                        // 播放按钮
+                        val isThisMessagePlaying = playingMessageId == message.id
+                        Button(
+                            onClick = { 
+                                viewModel.playAudioForMessage(message.id, message.content)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(32.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isThisMessagePlaying) 
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                else 
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            enabled = !isLoading && !isThisMessagePlaying
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Send,
-                                contentDescription = "播放语音",
-                                tint = textColor.copy(alpha = 0.8f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "播放语音",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = textColor
-                            )
+                            val textColor = MaterialTheme.colorScheme.primary
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = if (isThisMessagePlaying) "播放中" else "播放语音",
+                                    tint = textColor.copy(alpha = if (isThisMessagePlaying) 1.0f else 0.8f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isThisMessagePlaying) "播放中..." else "播放语音",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = textColor
+                                )
+                            }
+                        }
+                        
+                        // 刷新按钮
+                        Button(
+                            onClick = { 
+                                viewModel.refreshLastAIResponse()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(32.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isLoading) 
+                                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f)
+                                else 
+                                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            enabled = !isLoading
+                        ) {
+                            val textColor = MaterialTheme.colorScheme.secondary
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = if (isLoading) "刷新中" else "刷新回答",
+                                    tint = textColor.copy(alpha = if (isLoading) 1.0f else 0.8f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isLoading) "刷新中..." else "刷新回答",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = textColor
+                                )
+                            }
                         }
                     }
                 }
@@ -405,27 +509,31 @@ fun ChatMessageItem(message: ChatMessage) {
         }
         
         if (message.isUser) {
-            // 用户头像
-            Card(
+            // 用户头像 - 使用Canvas绘制完美圆形
+            val secondaryColor = MaterialTheme.colorScheme.secondary
+            val onSecondaryColor = MaterialTheme.colorScheme.onSecondary
+            
+            Box(
                 modifier = Modifier
-                    .size(32.dp)
-                    .padding(start = 8.dp),
-                shape = CircleShape,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondary
-                )
+                    .size(40.dp)
+                    .padding(start = 8.dp, top = 8.dp)
+                    .drawWithContent {
+                        // 绘制圆形背景
+                        drawCircle(
+                            color = secondaryColor,
+                            radius = size.minDimension / 2f
+                        )
+                        // 绘制内容
+                        drawContent()
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "用户",
-                        tint = MaterialTheme.colorScheme.onSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = "用户",
+                    tint = onSecondaryColor,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
@@ -437,25 +545,29 @@ fun LoadingMessage() {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Start
     ) {
-        Card(
+        val primaryColor = MaterialTheme.colorScheme.primary
+        val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
+        
+        Box(
             modifier = Modifier
-                .size(32.dp)
-                .padding(end = 8.dp),
-            shape = CircleShape,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            )
+                .size(40.dp)
+                .padding(end = 8.dp, top = 8.dp)
+                .drawWithContent {
+                    // 绘制圆形背景
+                    drawCircle(
+                        color = primaryColor,
+                        radius = size.minDimension / 2f
+                    )
+                    // 绘制内容
+                    drawContent()
+                },
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            }
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = onPrimaryColor
+            )
         }
         
         Card(
@@ -483,26 +595,30 @@ fun ErrorMessage(error: String) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Start
     ) {
-        Card(
+        val errorColor = MaterialTheme.colorScheme.error
+        val onErrorColor = MaterialTheme.colorScheme.onError
+        
+        Box(
             modifier = Modifier
-                .size(32.dp)
-                .padding(end = 8.dp),
-            shape = CircleShape,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.error
-            )
+                .size(40.dp)
+                .padding(end = 8.dp, top = 8.dp)
+                .drawWithContent {
+                    // 绘制圆形背景
+                    drawCircle(
+                        color = errorColor,
+                        radius = size.minDimension / 2f
+                    )
+                    // 绘制内容
+                    drawContent()
+                },
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "!",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onError,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            Text(
+                text = "!",
+                style = MaterialTheme.typography.labelSmall,
+                color = onErrorColor,
+                fontWeight = FontWeight.Bold
+            )
         }
         
         Card(
