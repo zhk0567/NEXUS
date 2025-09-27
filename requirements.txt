@@ -1,53 +1,36 @@
-# NEXUS 统一依赖包
-# 高性能AI语音助手 - 后端服务 + 数据分析
+# NEXUS Unified Backend Dependencies
+# =====================================
 
-# ==================== 核心Web框架 ====================
-flask>=2.3.0
-flask-cors>=4.0.0
+# Web Framework
+flask==2.3.3
+flask-cors==4.0.0
 
-# ==================== 高性能Web服务器 ====================
-gunicorn>=21.2.0
-gevent>=23.7.0
+# HTTP Requests
+requests==2.31.0
 
-# ==================== 核心功能依赖 ====================
-requests>=2.28.0
-vosk>=0.3.45
-pyaudio>=0.2.11
-librosa>=0.10.0
-numpy>=1.21.0
+# Text-to-Speech
+edge-tts==7.2.3
 
-# ==================== 语音合成 ====================
-pyttsx3>=2.90
-edge-tts>=6.1.0
+# System Monitoring
+psutil==5.9.6
 
-# ==================== 音频处理 ====================
-pygame>=2.0.0
-pydub>=0.25.1
+# Async Support (for edge-tts)
+aiohttp==3.9.1
 
-# ==================== 数据库 ====================
-mysql-connector-python>=8.0.0
+# Audio Processing (for Dolphin ASR)
+numpy==1.24.3
+scipy==1.11.4
+librosa==0.10.1
+soundfile==0.12.1
 
-# ==================== 数据处理与可视化 ====================
-pandas>=1.5.0
-matplotlib>=3.5.0
-seaborn>=0.11.0
-plotly>=5.0.0
+# Machine Learning (for Dolphin ASR)
+torch==2.1.2
+torchaudio==2.1.2
+transformers==4.36.2
 
-# ==================== 时间处理 ====================
-python-dateutil>=2.8.0
-pytz>=2022.1
+# Audio Format Support
+wave
+audioop
 
-# ==================== 高性能缓存 ====================
-redis>=4.5.0
-pickle5>=0.0.12
-
-# ==================== 异步处理 ====================
-asyncio>=3.4.3
-concurrent-futures>=3.1.1
-
-# ==================== 监控和日志 ====================
-psutil>=5.9.0
-prometheus-client>=0.16.0
-
-# ==================== 性能测试 ====================
-locust>=2.15.0
+# Additional Utilities
+python-dotenv==1.0.0

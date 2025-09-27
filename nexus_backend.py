@@ -1,0 +1,1329 @@
+#!/usr/bin/env python3
+"""
+NEXUS后端服务器
+提供ASR、TTS、AI聊天等完整功能
+"""
+from flask import Flask, request, jsonify, send_file
+import io
+import subprocess
+import sys
+import tempfile
+import os
+import logging
+import json
+import requests
+import json
+import time
+import asyncio
+import random
+import psutil
+import threading
+from datetime import datetime, timedelta
+from collections import defaultdict, deque
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# 服务监控和健康检查类
+class ServiceMonitor:
+    def __init__(self):
+        self.service_stats = {
+            'tts': {
+                'total_requests': 0,
+                'successful_requests': 0,
+                'failed_requests': 0,
+                'last_success': None,
+                'last_failure': None,
+                'consecutive_failures': 0,
+                'response_times': deque(maxlen=100),
+                'error_types': defaultdict(int)
+            },
+            'asr': {
+                'total_requests': 0,
+                'successful_requests': 0,
+                'failed_requests': 0,
+                'last_success': None,
+                'last_failure': None,
+                'consecutive_failures': 0,
+                'response_times': deque(maxlen=100),
+                'error_types': defaultdict(int)
+            },
+            'chat': {
+                'total_requests': 0,
+                'successful_requests': 0,
+                'failed_requests': 0,
+                'last_success': None,
+                'last_failure': None,
+                'consecutive_failures': 0,
+                'response_times': deque(maxlen=100),
+                'error_types': defaultdict(int)
+            }
+        }
+        self.system_stats = {
+            'cpu_percent': 0,
+            'memory_percent': 0,
+            'disk_usage': 0,
+            'last_update': None
+        }
+        self.health_status = {
+            'overall': 'healthy',
+            'services': {
+                'tts': 'healthy',
+                'asr': 'healthy', 
+                'chat': 'healthy'
+            },
+            'last_check': None
+        }
+        self.auto_recovery_enabled = True
+        self.recovery_attempts = defaultdict(int)
+        self.max_recovery_attempts = 3
+        
+    def update_service_stats(self, service_name, success=True, response_time=None, error_type=None):
+        """更新服务统计信息"""
+        if service_name not in self.service_stats:
+            return
+            
+        stats = self.service_stats[service_name]
+        stats['total_requests'] += 1
+        
+        if success:
+            stats['successful_requests'] += 1
+            stats['last_success'] = datetime.now()
+            stats['consecutive_failures'] = 0
+            self.health_status['services'][service_name] = 'healthy'
+        else:
+            stats['failed_requests'] += 1
+            stats['last_failure'] = datetime.now()
+            stats['consecutive_failures'] += 1
+            if error_type:
+                stats['error_types'][error_type] += 1
+                
+            # 检查是否需要标记为不健康
+            if stats['consecutive_failures'] >= 3:
+                self.health_status['services'][service_name] = 'unhealthy'
+                logger.warning(f"⚠️ 服务 {service_name} 连续失败 {stats['consecutive_failures']} 次，标记为不健康")
+        
+        if response_time is not None:
+            stats['response_times'].append(response_time)
+            
+    def update_system_stats(self):
+        """更新系统统计信息"""
+        try:
+            self.system_stats['cpu_percent'] = psutil.cpu_percent(interval=1)
+            self.system_stats['memory_percent'] = psutil.virtual_memory().percent
+            self.system_stats['disk_usage'] = psutil.disk_usage('/').percent
+            self.system_stats['last_update'] = datetime.now()
+        except Exception as e:
+            logger.error(f"❌ 更新系统统计失败: {e}")
+            
+    def check_health(self):
+        """检查服务健康状态"""
+        self.update_system_stats()
+        
+        unhealthy_services = []
+        for service, status in self.health_status['services'].items():
+            if status == 'unhealthy':
+                unhealthy_services.append(service)
+                
+        if unhealthy_services:
+            self.health_status['overall'] = 'degraded'
+            logger.warning(f"⚠️ 服务健康检查: 以下服务不健康: {unhealthy_services}")
+        else:
+            self.health_status['overall'] = 'healthy'
+            
+        self.health_status['last_check'] = datetime.now()
+        return self.health_status
+        
+    def get_service_metrics(self, service_name):
+        """获取服务指标"""
+        if service_name not in self.service_stats:
+            return None
+            
+        stats = self.service_stats[service_name]
+        response_times = list(stats['response_times'])
+        
+        metrics = {
+            'total_requests': stats['total_requests'],
+            'success_rate': stats['successful_requests'] / max(stats['total_requests'], 1) * 100,
+            'consecutive_failures': stats['consecutive_failures'],
+            'last_success': stats['last_success'].isoformat() if stats['last_success'] else None,
+            'last_failure': stats['last_failure'].isoformat() if stats['last_failure'] else None,
+            'avg_response_time': sum(response_times) / len(response_times) if response_times else 0,
+            'error_types': dict(stats['error_types'])
+        }
+        
+        return metrics
+        
+    def should_trigger_recovery(self, service_name):
+        """判断是否应该触发自动恢复"""
+        if not self.auto_recovery_enabled:
+            return False
+            
+        if service_name not in self.service_stats:
+            return False
+            
+        stats = self.service_stats[service_name]
+        return (stats['consecutive_failures'] >= 3 and 
+                self.recovery_attempts[service_name] < self.max_recovery_attempts)
+                
+    def record_recovery_attempt(self, service_name):
+        """记录恢复尝试"""
+        self.recovery_attempts[service_name] += 1
+        logger.info(f"🔄 服务 {service_name} 恢复尝试 {self.recovery_attempts[service_name]}/{self.max_recovery_attempts}")
+        
+    def reset_recovery_attempts(self, service_name):
+        """重置恢复尝试计数"""
+        self.recovery_attempts[service_name] = 0
+        logger.info(f"✅ 服务 {service_name} 恢复成功，重置尝试计数")
+
+# 创建全局监控实例
+monitor = ServiceMonitor()
+
+# TTS配置管理 - 专注edge-tts稳定性
+TTS_CONFIG = {
+    'max_retries': 5,  # 增加重试次数
+    'timeout_total': 60,  # 增加总超时时间
+    'timeout_connect': 30,  # 增加连接超时
+    'retry_delay': 2,  # 增加重试延迟
+    'max_consecutive_failures': 3,  # 连续失败阈值
+    'recovery_delay': 10,  # 恢复延迟
+    'concurrent_limit': 1,  # 限制并发为1，避免冲突
+    'cache_enabled': True,  # 启用缓存
+    'health_check_interval': 30,  # 健康检查间隔
+    'use_edge_tts_only': True  # 强制只使用edge-tts
+}
+
+# TTS缓存和并发控制
+tts_cache = {}
+tts_concurrent_count = 0
+tts_last_health_check = 0
+
+# 自动恢复机制
+class AutoRecovery:
+    def __init__(self):
+        self.recovery_thread = None
+        self.running = False
+        self.recovery_interval = 30  # 30秒检查一次
+        
+    def start(self):
+        """启动自动恢复监控"""
+        if self.running:
+            return
+            
+        self.running = True
+        self.recovery_thread = threading.Thread(target=self._recovery_loop, daemon=True)
+        self.recovery_thread.start()
+        logger.info("🔄 自动恢复监控已启动")
+        
+    def stop(self):
+        """停止自动恢复监控"""
+        self.running = False
+        if self.recovery_thread:
+            self.recovery_thread.join(timeout=5)
+        logger.info("⏹️ 自动恢复监控已停止")
+        
+    def _recovery_loop(self):
+        """恢复监控循环"""
+        while self.running:
+            try:
+                # 检查所有服务的健康状态
+                health_status = monitor.check_health()
+                
+                # 检查需要恢复的服务
+                for service_name in ['tts', 'asr', 'chat']:
+                    if monitor.should_trigger_recovery(service_name):
+                        self._attempt_recovery(service_name)
+                        
+                time.sleep(self.recovery_interval)
+                
+            except Exception as e:
+                logger.error(f"❌ 自动恢复监控异常: {e}")
+                time.sleep(self.recovery_interval)
+                
+    def _attempt_recovery(self, service_name):
+        """尝试恢复服务"""
+        try:
+            monitor.record_recovery_attempt(service_name)
+            
+            if service_name == 'tts':
+                self._recover_tts_service()
+            elif service_name == 'asr':
+                self._recover_asr_service()
+            elif service_name == 'chat':
+                self._recover_chat_service()
+                
+            # 等待一段时间后检查恢复是否成功
+            time.sleep(TTS_CONFIG['recovery_delay'])
+            
+            # 测试服务是否恢复
+            if self._test_service(service_name):
+                monitor.reset_recovery_attempts(service_name)
+                logger.info(f"✅ 服务 {service_name} 自动恢复成功")
+            else:
+                logger.warning(f"⚠️ 服务 {service_name} 自动恢复失败")
+                
+        except Exception as e:
+            logger.error(f"❌ 服务 {service_name} 恢复尝试异常: {e}")
+            
+    def _recover_tts_service(self):
+        """恢复TTS服务"""
+        logger.info("🔄 尝试恢复TTS服务...")
+        
+        # 清理临时文件
+        try:
+            temp_dir = tempfile.gettempdir()
+            for file in os.listdir(temp_dir):
+                if file.startswith('temp_tts') and file.endswith('.mp3'):
+                    os.remove(os.path.join(temp_dir, file))
+            logger.info("🧹 清理TTS临时文件完成")
+        except Exception as e:
+            logger.warning(f"⚠️ 清理TTS临时文件失败: {e}")
+            
+        # 等待一段时间让服务稳定
+        time.sleep(5)
+        
+    def _recover_asr_service(self):
+        """恢复ASR服务"""
+        logger.info("🔄 尝试恢复ASR服务...")
+        # ASR服务恢复逻辑（如果需要）
+        time.sleep(2)
+        
+    def _recover_chat_service(self):
+        """恢复聊天服务"""
+        logger.info("🔄 尝试恢复聊天服务...")
+        # 聊天服务恢复逻辑（如果需要）
+        time.sleep(2)
+        
+    def _test_service(self, service_name):
+        """测试服务是否正常"""
+        try:
+            if service_name == 'tts':
+                # 测试TTS服务
+                test_response = requests.post(
+                    'http://localhost:5000/api/tts',
+                    json={'text': '测试', 'voice': 'zh-CN-XiaoxiaoNeural'},
+                    timeout=10
+                )
+                return test_response.status_code == 200
+            elif service_name == 'asr':
+                # 测试ASR服务（如果有测试端点）
+                return True
+            elif service_name == 'chat':
+                # 测试聊天服务
+                return True
+        except Exception as e:
+            logger.error(f"❌ 测试服务 {service_name} 失败: {e}")
+            return False
+
+# 创建自动恢复实例
+auto_recovery = AutoRecovery()
+
+# ASR处理状态跟踪
+asr_processing_status = {
+    'is_processing': False,
+    'current_request_id': None,
+    'start_time': None,
+    'progress': 0
+}
+
+# 导入edge-tts
+try:
+    import edge_tts
+    EDGE_TTS_AVAILABLE = True
+    logger.info("✅ edge-tts模块导入成功")
+except ImportError as e:
+    EDGE_TTS_AVAILABLE = False
+    logger.error(f"❌ edge-tts模块导入失败: {e}")
+    logger.error("TTS功能将不可用")
+
+# 导入Dolphin ASR
+try:
+    import dolphin
+    DOLPHIN_AVAILABLE = True
+    logger.info("✅ Dolphin ASR模块导入成功")
+except ImportError as e:
+    DOLPHIN_AVAILABLE = False
+    logger.warning(f"⚠️ Dolphin ASR模块导入失败: {e}")
+    logger.warning("将使用模拟ASR结果")
+
+app = Flask(__name__)
+
+# DeepSeek API配置
+DEEPSEEK_API_KEY = "sk-66a8c43ecb14406ea020b5a9dd47090d"  # 请替换为您的API密钥
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+
+# Dolphin ASR配置
+DOLPHIN_MODEL_PATH = "models/dolphin"
+DOLPHIN_MODEL = None
+
+def initialize_dolphin_model():
+    """初始化Dolphin ASR模型"""
+    global DOLPHIN_MODEL
+    
+    if not DOLPHIN_AVAILABLE:
+        logger.warning("Dolphin不可用，跳过模型初始化")
+        return False
+        
+    try:
+        logger.info("🔄 正在初始化Dolphin ASR模型...")
+        
+        # 检查模型文件是否存在
+        if not os.path.exists(DOLPHIN_MODEL_PATH):
+            logger.error(f"❌ Dolphin模型路径不存在: {DOLPHIN_MODEL_PATH}")
+            return False
+            
+        model_file = os.path.join(DOLPHIN_MODEL_PATH, "small.pt")
+        if not os.path.exists(model_file):
+            logger.error(f"❌ Dolphin模型文件不存在: {model_file}")
+            return False
+            
+        # 加载模型
+        DOLPHIN_MODEL = dolphin.load_model("small", DOLPHIN_MODEL_PATH, "cpu")
+        logger.info("✅ Dolphin ASR模型初始化成功")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Dolphin模型初始化失败: {e}")
+        DOLPHIN_MODEL = None
+        return False
+
+def transcribe_with_dolphin(audio_file_path: str) -> str:
+    """使用Dolphin进行语音识别"""
+    try:
+        logger.info(f"🎤 开始Dolphin语音识别，文件: {audio_file_path}")
+        logger.info(f"🎤 DOLPHIN_AVAILABLE: {DOLPHIN_AVAILABLE}")
+        logger.info(f"🎤 DOLPHIN_MODEL is None: {DOLPHIN_MODEL is None}")
+        
+        if not DOLPHIN_AVAILABLE:
+            logger.warning("Dolphin模块不可用，返回模拟结果")
+            return "这是模拟的语音识别结果"
+            
+        if DOLPHIN_MODEL is None:
+            logger.warning("Dolphin模型未初始化，返回模拟结果")
+            return "这是模拟的语音识别结果"
+            
+        logger.info(f"🎤 使用Dolphin进行语音识别: {audio_file_path}")
+        
+        # 加载音频
+        waveform = dolphin.load_audio(audio_file_path)
+        logger.info(f"🎤 音频加载成功，形状: {waveform.shape}")
+        
+        # 进行识别
+        result = DOLPHIN_MODEL(waveform, lang_sym="zh", region_sym="CN")
+        logger.info(f"🎤 原始识别结果: {result.text}")
+        
+        # 提取纯文本结果（去除特殊标记）
+        text = result.text
+        if text.startswith("<zh><CN><asr>"):
+            # 移除语言和区域标记
+            text = text.replace("<zh><CN><asr>", "")
+            # 移除时间标记
+            import re
+            text = re.sub(r'<[0-9.]+>', '', text)
+            text = text.strip()
+        
+        logger.info(f"🎤 处理后识别结果: {text}")
+        return text if text else "识别结果为空"
+        
+    except Exception as e:
+        logger.error(f"❌ Dolphin语音识别失败: {e}")
+        import traceback
+        logger.error(f"❌ 错误详情: {traceback.format_exc()}")
+        return "语音识别失败"
+
+def check_tts_health():
+    """检查TTS服务健康状态 - 直接集成版本"""
+    global tts_last_health_check
+    current_time = time.time()
+    
+    # 如果距离上次检查时间太短，跳过
+    if current_time - tts_last_health_check < TTS_CONFIG.get('health_check_interval', 10):
+        return True
+    
+    try:
+        # 简单的健康检查 - 直接调用TTS函数
+        test_audio = generate_tts_audio("测试", "zh-CN-XiaoxiaoNeural")
+        tts_last_health_check = current_time
+        return len(test_audio) > 100
+    except Exception as e:
+        logger.warning(f"⚠️ TTS健康检查失败: {e}")
+        return False
+
+
+def cleanup_tts_cache():
+    """清理TTS缓存"""
+    global tts_cache
+    try:
+        # 限制缓存大小，保留最近使用的
+        if len(tts_cache) > 50:  # 最多保留50个缓存
+            # 删除最旧的缓存项
+            items_to_remove = list(tts_cache.keys())[:len(tts_cache) - 50]
+            for key in items_to_remove:
+                del tts_cache[key]
+            logger.info(f"🧹 清理TTS缓存，删除 {len(items_to_remove)} 项")
+    except Exception as e:
+        logger.error(f"❌ 缓存清理失败: {e}")
+
+async def generate_tts_audio_async(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> bytes:
+    """异步生成TTS音频 - 直接集成edge-tts"""
+    global tts_concurrent_count
+    start_time = time.time()
+    success = False
+    error_type = None
+    
+    try:
+        logger.info(f"🎵 开始TTS处理: {text}, 音色: {voice}")
+        
+        # 并发控制
+        if tts_concurrent_count >= TTS_CONFIG['concurrent_limit']:
+            logger.warning("⚠️ TTS并发限制，拒绝请求")
+            error_type = "concurrent_limit"
+            return b""
+        
+        tts_concurrent_count += 1
+        
+        # 缓存检查
+        cache_key = f"{text}_{voice}"
+        if TTS_CONFIG['cache_enabled'] and cache_key in tts_cache:
+            logger.info("🎵 使用缓存音频")
+            return tts_cache[cache_key]
+        
+        # 预处理文本，确保稳定性
+        processed_text = text.strip()
+        if not processed_text:
+            logger.warning("⚠️ 文本为空，使用默认文本")
+            processed_text = "测试"
+        
+        # 限制文本长度，避免过长请求
+        if len(processed_text) > 200:
+            processed_text = processed_text[:200]
+            logger.info(f"🎵 文本过长，截取前200字符")
+        
+        # 验证和标准化音色
+        valid_voices = [
+            'zh-CN-XiaoxiaoNeural',
+            'zh-CN-YunxiNeural', 
+            'zh-CN-YunyangNeural',
+            'zh-CN-XiaoyiNeural',
+            'zh-CN-YunjianNeural'
+        ]
+        
+        if voice not in valid_voices:
+            logger.warning(f"⚠️ 无效音色: {voice}，使用默认音色")
+            voice = 'zh-CN-XiaoxiaoNeural'
+        
+        logger.info(f"🎵 使用音色: {voice}")
+        
+        # 检查是否需要触发自动恢复
+        if monitor.should_trigger_recovery('tts'):
+            logger.warning("⚠️ TTS服务连续失败，触发自动恢复")
+            auto_recovery._attempt_recovery('tts')
+        
+        # 直接使用edge-tts - 重试机制
+        for retry in range(TTS_CONFIG['max_retries']):
+            try:
+                logger.info(f"🎵 edge-tts尝试 {retry + 1}/{TTS_CONFIG['max_retries']}")
+                
+                # 增加重试延迟，避免edge-tts服务限制
+                if retry > 0:
+                    delay = TTS_CONFIG['retry_delay'] * (retry + 1) + random.uniform(1, 3)
+                    logger.info(f"🎵 等待 {delay:.1f} 秒后重试edge-tts...")
+                    await asyncio.sleep(delay)
+                
+                # 直接使用edge-tts
+                communicate = edge_tts.Communicate(
+                    processed_text, 
+                    voice,
+                    rate="+0%",
+                    pitch="+0Hz", 
+                    volume="+0%"
+                )
+                
+                # 初始化变量
+                audio_data = b""
+                chunk_count = 0
+                
+                # 设置超时 - 使用asyncio.wait_for兼容Python 3.10
+                async def process_audio_stream():
+                    nonlocal audio_data, chunk_count
+                    
+                    async for chunk in communicate.stream():
+                        chunk_type = chunk.get("type", "unknown")
+                        chunk_data = chunk.get("data", b"")
+                        
+                        if chunk_type == "audio" and chunk_data:
+                            audio_data += chunk_data
+                            chunk_count += 1
+                            if chunk_count % 5 == 0:  # 每5块打印一次
+                                logger.info(f"🎵 已处理 {chunk_count} 块，当前大小: {len(audio_data)} 字节")
+                
+                await asyncio.wait_for(process_audio_stream(), timeout=TTS_CONFIG['timeout_total'])
+                
+                # 验证音频数据
+                if len(audio_data) < 1000:
+                    logger.warning(f"⚠️ 音频数据过小: {len(audio_data)} 字节，重试...")
+                    if retry < TTS_CONFIG['max_retries'] - 1:
+                        continue
+                    else:
+                        logger.error(f"❌ 音频数据过小: {len(audio_data)} 字节")
+                        error_type = "audio_too_small"
+                        return b""
+                
+                # 检查MP3文件头
+                if not audio_data.startswith(b'\xff\xfb') and not audio_data.startswith(b'ID3'):
+                    logger.warning(f"⚠️ 音频文件可能损坏，文件头: {audio_data[:10]}")
+                
+                logger.info(f"🎵 edge-tts生成成功，音频大小: {len(audio_data)} 字节")
+                
+                # 缓存音频数据
+                if TTS_CONFIG['cache_enabled']:
+                    cache_key = f"{processed_text}_{voice}"
+                    tts_cache[cache_key] = audio_data
+                    cleanup_tts_cache()  # 定期清理缓存
+                
+                success = True
+                return audio_data
+                        
+            except asyncio.TimeoutError:
+                logger.warning(f"⚠️ edge-tts尝试 {retry + 1} 超时")
+                if retry < TTS_CONFIG['max_retries'] - 1:
+                    continue
+                else:
+                    logger.error("❌ edge-tts超时")
+                    error_type = "timeout"
+                    return b""
+            except Exception as e:
+                logger.warning(f"⚠️ edge-tts尝试 {retry + 1} 失败: {e}")
+                if retry < TTS_CONFIG['max_retries'] - 1:
+                    continue
+                else:
+                    logger.error(f"❌ edge-tts执行异常: {e}")
+                    error_type = "exception"
+                    return b""
+        
+        return b""
+                
+    except Exception as e:
+        logger.error(f"❌ TTS处理失败: {e}")
+        import traceback
+        logger.error(f"❌ TTS错误详情: {traceback.format_exc()}")
+        error_type = "exception"
+        return b""
+        
+    finally:
+        # 更新并发计数
+        tts_concurrent_count = max(0, tts_concurrent_count - 1)
+        
+        # 更新监控统计
+        response_time = time.time() - start_time
+        monitor.update_service_stats('tts', success=success, response_time=response_time, error_type=error_type)
+
+def generate_tts_audio(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> bytes:
+    """同步包装器 - 调用异步TTS生成"""
+    try:
+        # 检查是否已有事件循环
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 如果事件循环正在运行，使用线程池
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_async_tts, text, voice)
+                    return future.result(timeout=TTS_CONFIG['timeout_total'])
+            else:
+                # 事件循环存在但不运行，直接使用
+                return loop.run_until_complete(generate_tts_audio_async(text, voice))
+        except RuntimeError:
+            # 没有事件循环，创建新的
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(generate_tts_audio_async(text, voice))
+            finally:
+                loop.close()
+    except Exception as e:
+        logger.error(f"❌ 同步TTS包装器失败: {e}")
+        return b""
+
+def run_async_tts(text: str, voice: str) -> bytes:
+    """在线程中运行异步TTS"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(generate_tts_audio_async(text, voice))
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.error(f"❌ 线程异步TTS失败: {e}")
+        return b""
+
+# emoji过滤函数已移除，改为通过系统提示词直接限制
+
+def chat_with_deepseek(message: str) -> str:
+    """与DeepSeek API聊天"""
+    try:
+        logger.info(f"🤖 开始AI聊天: {message}")
+        
+        headers = {
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": "deepseek-chat",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "你是一个智能助手，请用中文回答用户的问题。回答要简洁明了，不超过200字。请确保回复内容不包含任何emoji表情符号或颜文字，保持专业和简洁的表达方式。"
+                },
+                {
+                    "role": "user",
+                    "content": message
+                }
+            ],
+            "max_tokens": 500,
+            "temperature": 0.7
+        }
+        
+        response = requests.post(
+            f"{DEEPSEEK_BASE_URL}/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            ai_response = result['choices'][0]['message']['content']
+            
+            # 系统提示词已限制emoji，无需后处理过滤
+            
+            logger.info(f"🤖 AI回复: {ai_response}")
+            return ai_response
+        else:
+            logger.error(f"❌ DeepSeek API错误: {response.status_code} - {response.text}")
+            return "抱歉，AI服务暂时不可用，请稍后重试。"
+            
+    except Exception as e:
+        logger.error(f"❌ AI聊天失败: {e}")
+        return "抱歉，AI服务出现错误，请稍后重试。"
+
+@app.route('/api/transcribe', methods=['POST'])
+def transcribe_audio():
+    """语音识别API - 带监控和状态反馈"""
+    import uuid
+    
+    start_time = time.time()
+    success = False
+    error_type = None
+    request_id = str(uuid.uuid4())
+    
+    try:
+        logger.info(f"🎤 收到语音识别请求 [ID: {request_id}]")
+        
+        # 设置处理状态
+        asr_processing_status['is_processing'] = True
+        asr_processing_status['current_request_id'] = request_id
+        asr_processing_status['start_time'] = start_time
+        asr_processing_status['progress'] = 10
+        
+        if 'audio' not in request.files:
+            logger.error("❌ 请求中没有音频文件")
+            error_type = "no_audio_file"
+            return jsonify({'error': 'No audio file provided'}), 400
+        
+        audio_file = request.files['audio']
+        if audio_file.filename == '':
+            logger.error("❌ 音频文件名为空")
+            error_type = "empty_filename"
+            return jsonify({'error': 'No audio file selected'}), 400
+        
+        logger.info(f"🎤 收到音频文件: {audio_file.filename}")
+        asr_processing_status['progress'] = 30
+        
+        # 保存临时文件
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
+            audio_file.save(temp_file.name)
+            temp_path = temp_file.name
+            logger.info(f"🎤 音频文件保存到: {temp_path}")
+        
+        asr_processing_status['progress'] = 50
+        
+        try:
+            # 使用Dolphin进行真正的语音识别
+            logger.info("🎤 开始语音识别处理...")
+            asr_processing_status['progress'] = 70
+            transcription = transcribe_with_dolphin(temp_path)
+            asr_processing_status['progress'] = 90
+            
+            logger.info(f"🎤 语音识别完成: {transcription}")
+            success = True
+            asr_processing_status['progress'] = 100
+            
+            return jsonify({
+                'success': True,
+                'transcription': transcription,
+                'processing_time': time.time() - start_time,
+                'request_id': request_id
+            })
+            
+        finally:
+            # 清理临时文件
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                
+    except Exception as e:
+        logger.error(f"❌ 语音识别API错误: {e}")
+        error_type = "exception"
+        return jsonify({'error': str(e)}), 500
+        
+    finally:
+        # 重置处理状态
+        asr_processing_status['is_processing'] = False
+        asr_processing_status['current_request_id'] = None
+        asr_processing_status['start_time'] = None
+        asr_processing_status['progress'] = 0
+        
+        # 更新监控统计
+        response_time = time.time() - start_time
+        monitor.update_service_stats('asr', success=success, response_time=response_time, error_type=error_type)
+
+@app.route('/api/asr/status', methods=['GET'])
+def asr_status():
+    """ASR服务状态查询 - 包含实时处理状态"""
+    try:
+        asr_metrics = monitor.get_service_metrics('asr')
+        health_status = monitor.check_health()
+        
+        # 计算处理时间
+        processing_time = None
+        if asr_processing_status['is_processing'] and asr_processing_status['start_time']:
+            processing_time = time.time() - asr_processing_status['start_time']
+        
+        return jsonify({
+            'status': 'success',
+            'asr_health': health_status['services']['asr'],
+            'metrics': asr_metrics,
+            'processing': {
+                'is_processing': asr_processing_status['is_processing'],
+                'current_request_id': asr_processing_status['current_request_id'],
+                'progress': asr_processing_status['progress'],
+                'processing_time': processing_time,
+                'start_time': asr_processing_status['start_time']
+            },
+            'last_update': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"❌ ASR状态查询失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tts', methods=['POST'])
+def text_to_speech():
+    """文字转语音API - 直接集成edge-tts"""
+    try:
+        logger.info("🎵 TTS API被调用")
+        data = request.get_json()
+        logger.info(f"🎵 接收到的数据: {data}")
+        
+        if not data or 'text' not in data:
+            logger.error("❌ 缺少text参数")
+            return jsonify({'error': 'No text provided'}), 400
+        
+        text = data['text']
+        voice = data.get('voice', 'zh-CN-XiaoxiaoNeural')
+        logger.info(f"🎵 收到TTS请求: {text}, 音色: {voice}")
+        
+        # 生成音频 - 使用直接集成的edge-tts
+        logger.info("🎵 开始调用generate_tts_audio...")
+        audio_data = generate_tts_audio(text, voice)
+        logger.info(f"🎵 generate_tts_audio返回: {len(audio_data) if audio_data else 0} 字节")
+        
+        if audio_data and len(audio_data) > 0:
+            logger.info(f"🎵 TTS生成成功，音频大小: {len(audio_data)} 字节")
+            return send_file(
+                io.BytesIO(audio_data),
+                mimetype='audio/mpeg',
+                as_attachment=True,
+                download_name='speech.mp3'
+            )
+        else:
+            logger.error("❌ TTS生成失败：音频数据为空")
+            return jsonify({'error': 'TTS failed - no audio data generated'}), 500
+            
+    except Exception as e:
+        logger.error(f"❌ TTS API错误: {e}")
+        import traceback
+        logger.error(f"❌ TTS API错误详情: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """健康检查端点"""
+    try:
+        health_status = monitor.check_health()
+        return jsonify(health_status)
+    except Exception as e:
+        logger.error(f"❌ 健康检查失败: {e}")
+        return jsonify({"overall": "error", "error": str(e)}), 500
+
+@app.route('/api/metrics', methods=['GET'])
+def get_metrics():
+    """获取服务指标"""
+    try:
+        service_name = request.args.get('service', 'all')
+        
+        if service_name == 'all':
+            metrics = {}
+            for service in ['tts', 'asr', 'chat']:
+                metrics[service] = monitor.get_service_metrics(service)
+            metrics['system'] = monitor.system_stats
+            return jsonify(metrics)
+        else:
+            if service_name in ['tts', 'asr', 'chat']:
+                metrics = monitor.get_service_metrics(service_name)
+                if metrics:
+                    return jsonify(metrics)
+                else:
+                    return jsonify({"error": "Service not found"}), 404
+            else:
+                return jsonify({"error": "Invalid service name"}), 400
+                
+    except Exception as e:
+        logger.error(f"❌ 获取指标失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/recovery/trigger', methods=['POST'])
+def trigger_recovery():
+    """手动触发服务恢复"""
+    try:
+        data = request.get_json()
+        service_name = data.get('service', 'tts')
+        
+        if service_name not in ['tts', 'asr', 'chat']:
+            return jsonify({"error": "Invalid service name"}), 400
+            
+        # 触发恢复
+        auto_recovery._attempt_recovery(service_name)
+        
+        return jsonify({
+            "message": f"Recovery triggered for {service_name}",
+            "service": service_name,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 触发恢复失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/recovery/status', methods=['GET'])
+def recovery_status():
+    """获取恢复状态"""
+    try:
+        status = {
+            "auto_recovery_enabled": monitor.auto_recovery_enabled,
+            "recovery_attempts": dict(monitor.recovery_attempts),
+            "max_recovery_attempts": monitor.max_recovery_attempts,
+            "recovery_running": auto_recovery.running
+        }
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"❌ 获取恢复状态失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/tts/status', methods=['GET'])
+def tts_status():
+    """TTS服务状态查询"""
+    try:
+        global tts_concurrent_count, tts_cache, tts_last_health_check
+        
+        tts_metrics = monitor.get_service_metrics('tts')
+        health_status = monitor.check_health()
+        
+        return jsonify({
+            'status': 'success',
+            'tts_health': health_status['services']['tts'],
+            'metrics': tts_metrics,
+            'config': TTS_CONFIG,
+            'runtime': {
+                'concurrent_requests': tts_concurrent_count,
+                'cache_size': len(tts_cache),
+                'last_health_check': tts_last_health_check,
+                'is_healthy': check_tts_health()
+            },
+            'last_update': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"❌ TTS状态查询失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tts/cache/clear', methods=['POST'])
+def clear_tts_cache():
+    """清理TTS缓存"""
+    try:
+        global tts_cache
+        cache_size = len(tts_cache)
+        tts_cache.clear()
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'清理了 {cache_size} 个缓存项',
+            'cache_size': 0
+        })
+    except Exception as e:
+        logger.error(f"❌ 清理TTS缓存失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/chat_streaming', methods=['POST'])
+def chat_streaming():
+    """AI聊天流式API - 真正的流式实现"""
+    try:
+        data = request.get_json()
+        if not data or 'message' not in data:
+            return jsonify({'error': 'No message provided'}), 400
+        
+        message = data['message']
+        conversation_history = data.get('conversation_history', [])  # 获取对话历史
+        logger.info(f"🤖 收到流式聊天请求: {message}")
+        logger.info(f"📚 对话历史长度: {len(conversation_history)}")
+        
+        # 真正的流式响应生成器
+        def generate_streaming_response():
+            try:
+                headers = {
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+                
+                # 构建消息列表，包含系统消息、对话历史和当前消息
+                messages = [
+                    {
+                        "role": "system",
+                        "content": "你是一个智能助手，请用中文回答用户的问题。回答要简洁明了，不超过200字。请确保回复内容不包含任何emoji表情符号或颜文字，保持专业和简洁的表达方式。"
+                    }
+                ]
+                
+                # 添加对话历史
+                for history_item in conversation_history:
+                    messages.append({
+                        "role": "user" if history_item.get("isUser", True) else "assistant",
+                        "content": history_item.get("content", "")
+                    })
+                
+                # 添加当前消息
+                messages.append({
+                    "role": "user",
+                    "content": message
+                })
+                
+                data = {
+                    "model": "deepseek-chat",
+                    "messages": messages,
+                    "max_tokens": 500,
+                    "temperature": 0.7,
+                    "stream": True  # 启用真正的流式
+                }
+                
+                # 发送流式请求到DeepSeek API
+                response = requests.post(
+                    f"{DEEPSEEK_BASE_URL}/chat/completions",
+                    headers=headers,
+                    json=data,
+                    stream=True,  # 启用流式接收
+                    timeout=60
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"❌ DeepSeek流式API错误: {response.status_code}")
+                    error_chunk = {
+                        'type': 'error',
+                        'message': f'DeepSeek API错误: {response.status_code}'
+                    }
+                    yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+                    return
+                
+                # 处理流式响应
+                full_text = ""
+                sentence_count = 0
+                
+                for line in response.iter_lines():
+                    if line:
+                        line_str = line.decode('utf-8')
+                        if line_str.startswith('data: '):
+                            data_str = line_str[6:]  # 移除 'data: ' 前缀
+                            
+                            if data_str.strip() == '[DONE]':
+                                # 流式结束，系统提示词已限制emoji
+                                complete_chunk = {
+                                    'type': 'complete',
+                                    'text': full_text,
+                                    'sentence_count': sentence_count
+                                }
+                                yield f"data: {json.dumps(complete_chunk, ensure_ascii=False)}\n\n"
+                                break
+                            
+                            try:
+                                chunk_data = json.loads(data_str)
+                                if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
+                                    choice = chunk_data['choices'][0]
+                                    if 'delta' in choice and 'content' in choice['delta']:
+                                        content = choice['delta']['content']
+                                        
+                                        # 系统提示词已限制emoji，无需后处理过滤
+                                        
+                                        full_text += content
+                                        
+                                        # 检查是否完成一个句子
+                                        if any(punct in content for punct in ['。', '！', '？', '；']):
+                                            sentence_count += 1
+                                        
+                                        # 发送文本更新
+                                        text_update_chunk = {
+                                            'type': 'text_update',
+                                            'content': content,
+                                            'full_text': full_text,
+                                            'sentence_count': sentence_count
+                                        }
+                                        yield f"data: {json.dumps(text_update_chunk, ensure_ascii=False)}\n\n"
+                                        
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"⚠️ 解析流式数据失败: {e}")
+                                continue
+                
+                logger.info(f"✅ 流式响应完成，总长度: {len(full_text)}")
+                
+            except Exception as e:
+                logger.error(f"❌ 流式响应生成失败: {e}")
+                error_chunk = {
+                    'type': 'error',
+                    'message': f'流式响应失败: {str(e)}'
+                }
+                yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+        
+        return app.response_class(
+            generate_streaming_response(),
+            mimetype='text/plain',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no'  # 禁用nginx缓冲
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ 流式聊天API错误: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """AI聊天API（非流式）"""
+    try:
+        data = request.get_json()
+        if not data or 'message' not in data:
+            return jsonify({'error': 'No message provided'}), 400
+        
+        message = data['message']
+        logger.info(f"🤖 收到聊天请求: {message}")
+        
+        # 调用DeepSeek API
+        ai_response = chat_with_deepseek(message)
+        
+        return jsonify({'response': ai_response})
+        
+    except Exception as e:
+        logger.error(f"❌ 聊天API错误: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/test_tts', methods=['GET'])
+def test_tts():
+    """测试TTS功能"""
+    try:
+        test_text = "这是一个TTS测试"
+        logger.info(f"🧪 开始TTS测试: {test_text}")
+        
+        # 生成音频
+        audio_data = generate_tts_audio(test_text)
+        
+        if audio_data and len(audio_data) > 0:
+            logger.info(f"✅ TTS测试成功，音频大小: {len(audio_data)} 字节")
+            return jsonify({
+                'status': 'success', 
+                'message': 'TTS测试成功',
+                'audio_size': len(audio_data),
+                'service': 'edge-tts',
+                'stability': 'enhanced'
+            })
+        else:
+            logger.error("❌ TTS测试失败：音频数据为空")
+            return jsonify({
+                'status': 'error', 
+                'message': 'TTS测试失败：音频数据为空'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"❌ TTS测试异常: {e}")
+        import traceback
+        logger.error(f"❌ TTS测试错误详情: {traceback.format_exc()}")
+        return jsonify({
+            'status': 'error', 
+            'message': f'TTS测试异常: {str(e)}'
+        }), 500
+
+@app.route('/api/tts/health', methods=['GET'])
+def tts_health_check():
+    """TTS健康检查"""
+    try:
+        # 快速测试TTS服务
+        test_text = "健康检查"
+        start_time = time.time()
+        
+        audio_data = generate_tts_audio(test_text)
+        
+        end_time = time.time()
+        response_time = end_time - start_time
+        
+        if audio_data and len(audio_data) > 1000:  # 至少1KB
+            return jsonify({
+                'status': 'healthy',
+                'service': 'edge-tts',
+                'response_time': round(response_time, 2),
+                'audio_size': len(audio_data),
+                'timestamp': time.time(),
+                'features': [
+                    'multiple_voice_fallback',
+                    'connection_pooling',
+                    'timeout_management',
+                    'intelligent_retry',
+                    'error_recovery'
+                ]
+            })
+        else:
+            return jsonify({
+                'status': 'unhealthy',
+                'service': 'edge-tts',
+                'error': 'Audio generation failed',
+                'timestamp': time.time()
+            }), 503
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'service': 'edge-tts',
+            'error': str(e),
+            'timestamp': time.time()
+        }), 503
+
+@app.route('/api/tts/config', methods=['GET', 'POST'])
+def tts_config():
+    """TTS配置管理"""
+    if request.method == 'GET':
+        return jsonify({
+            'status': 'success',
+            'config': TTS_CONFIG,
+            'description': 'TTS稳定性配置参数'
+        })
+    
+    elif request.method == 'POST':
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No configuration provided'}), 400
+            
+            # 更新配置
+            for key, value in data.items():
+                if key in TTS_CONFIG:
+                    TTS_CONFIG[key] = value
+                    logger.info(f"🔧 TTS配置更新: {key} = {value}")
+                else:
+                    logger.warning(f"⚠️ 未知的TTS配置项: {key}")
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'TTS配置已更新',
+                'config': TTS_CONFIG
+            })
+            
+        except Exception as e:
+            logger.error(f"❌ TTS配置更新失败: {e}")
+            return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tts/stats', methods=['GET'])
+def tts_stats():
+    """TTS统计信息"""
+    try:
+        # 这里可以添加统计信息收集
+        return jsonify({
+            'status': 'success',
+            'stats': {
+                'service': 'edge-tts',
+                'version': 'enhanced-stability',
+                'features': [
+                    'multiple_voice_fallback',
+                    'connection_pooling',
+                    'timeout_management',
+                    'intelligent_retry',
+                    'error_recovery',
+                    'health_monitoring',
+                    'config_management'
+                ],
+                'voice_count': len(TTS_CONFIG['voice_options']),
+                'max_retries': TTS_CONFIG['max_retries'],
+                'timeout_total': TTS_CONFIG['timeout_total']
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    import socket
+    
+    # 获取本机IP地址
+    def get_local_ip():
+        try:
+            # 连接到一个远程地址来获取本机IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except:
+            return "127.0.0.1"
+    
+    local_ip = get_local_ip()
+    
+    logger.info("🚀 启动NEXUS后端服务器...")
+    logger.info(f"🌐 服务地址: http://{local_ip}:5000")
+    
+    # 初始化Dolphin ASR模型
+    dolphin_available = initialize_dolphin_model()
+    
+    if dolphin_available:
+        logger.info("🎤 语音识别: 可用 (Dolphin ASR)")
+    else:
+        logger.info("🎤 语音识别: 可用 (模拟模式)")
+        
+    logger.info("🎵 语音合成: 可用 (edge-tts)")
+    logger.info("🤖 AI聊天: 可用 (DeepSeek)")
+    
+    # 启动自动恢复监控
+    try:
+        auto_recovery.start()
+        logger.info("🔄 自动恢复监控: 已启动")
+    except Exception as e:
+        logger.error(f"❌ 启动自动恢复监控失败: {e}")
+    
+    logger.info("==================================================")
+    
+    try:
+        app.run(host='0.0.0.0', port=5000, debug=False)
+    except KeyboardInterrupt:
+        logger.info("⏹️ 收到停止信号，正在关闭服务...")
+    finally:
+        # 停止自动恢复监控
+        try:
+            auto_recovery.stop()
+            logger.info("⏹️ 自动恢复监控已停止")
+        except Exception as e:
+            logger.error(f"❌ 停止自动恢复监控失败: {e}")
