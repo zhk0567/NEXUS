@@ -20,6 +20,7 @@ import psutil
 import threading
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
+from database_manager import db_manager
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -536,7 +537,7 @@ async def generate_tts_audio_async(text: str, voice: str = "zh-CN-XiaoxiaoNeural
                     processed_text, 
                     voice,
                     rate="+0%",
-                    pitch="+0Hz", 
+                    pitch="+0Hz",
                     volume="+0%"
                 )
                 
@@ -548,15 +549,15 @@ async def generate_tts_audio_async(text: str, voice: str = "zh-CN-XiaoxiaoNeural
                 async def process_audio_stream():
                     nonlocal audio_data, chunk_count
                     
-                    async for chunk in communicate.stream():
-                        chunk_type = chunk.get("type", "unknown")
-                        chunk_data = chunk.get("data", b"")
-                        
-                        if chunk_type == "audio" and chunk_data:
-                            audio_data += chunk_data
-                            chunk_count += 1
-                            if chunk_count % 5 == 0:  # 每5块打印一次
-                                logger.info(f"🎵 已处理 {chunk_count} 块，当前大小: {len(audio_data)} 字节")
+                async for chunk in communicate.stream():
+                    chunk_type = chunk.get("type", "unknown")
+                    chunk_data = chunk.get("data", b"")
+                    
+                    if chunk_type == "audio" and chunk_data:
+                        audio_data += chunk_data
+                    chunk_count += 1
+                    if chunk_count % 5 == 0:  # 每5块打印一次
+                        logger.info(f"🎵 已处理 {chunk_count} 块，当前大小: {len(audio_data)} 字节")
                 
                 await asyncio.wait_for(process_audio_stream(), timeout=TTS_CONFIG['timeout_total'])
                 
@@ -584,7 +585,7 @@ async def generate_tts_audio_async(text: str, voice: str = "zh-CN-XiaoxiaoNeural
                 
                 success = True
                 return audio_data
-                        
+                
             except asyncio.TimeoutError:
                 logger.warning(f"⚠️ edge-tts尝试 {retry + 1} 超时")
                 if retry < TTS_CONFIG['max_retries'] - 1:
@@ -603,14 +604,14 @@ async def generate_tts_audio_async(text: str, voice: str = "zh-CN-XiaoxiaoNeural
                     return b""
         
         return b""
-                
+        
     except Exception as e:
         logger.error(f"❌ TTS处理失败: {e}")
         import traceback
         logger.error(f"❌ TTS错误详情: {traceback.format_exc()}")
         error_type = "exception"
         return b""
-        
+
     finally:
         # 更新并发计数
         tts_concurrent_count = max(0, tts_concurrent_count - 1)
@@ -710,6 +711,12 @@ def chat_with_deepseek(message: str) -> str:
         logger.error(f"❌ AI聊天失败: {e}")
         return "抱歉，AI服务出现错误，请稍后重试。"
 
+# 添加兼容性端点
+@app.route('/transcribe', methods=['POST'])
+def transcribe_legacy():
+    """兼容性端点 - 重定向到API版本"""
+    return transcribe_audio()
+
 @app.route('/api/transcribe', methods=['POST'])
 def transcribe_audio():
     """语音识别API - 带监控和状态反馈"""
@@ -789,6 +796,12 @@ def transcribe_audio():
         # 更新监控统计
         response_time = time.time() - start_time
         monitor.update_service_stats('asr', success=success, response_time=response_time, error_type=error_type)
+
+# 添加兼容性端点
+@app.route('/asr/status', methods=['GET'])
+def asr_status_legacy():
+    """兼容性端点 - 重定向到API版本"""
+    return asr_status()
 
 @app.route('/api/asr/status', methods=['GET'])
 def asr_status():
@@ -984,6 +997,8 @@ def chat_streaming():
             return jsonify({'error': 'No message provided'}), 400
         
         message = data['message']
+        user_id = data.get('user_id', 'anonymous')
+        session_id = data.get('session_id', '')
         conversation_history = data.get('conversation_history', [])  # 获取对话历史
         logger.info(f"🤖 收到流式聊天请求: {message}")
         logger.info(f"📚 对话历史长度: {len(conversation_history)}")
@@ -1093,6 +1108,33 @@ def chat_streaming():
                 
                 logger.info(f"✅ 流式响应完成，总长度: {len(full_text)}")
                 
+                # 记录交互到数据库
+                try:
+                    # 使用随机user_id，确保数据库记录
+                    import uuid
+                    random_user_id = f"user_{uuid.uuid4().hex[:8]}"
+                    
+                    # 先创建用户（如果不存在）
+                    try:
+                        password_hash = db_manager.hash_password("random_password")
+                        db_manager.create_user(random_user_id, f"user_{int(time.time())}", password_hash)
+                        logger.info(f"✅ 创建随机用户: {random_user_id}")
+                    except Exception as create_error:
+                        # 用户可能已存在，继续使用
+                        logger.debug(f"用户可能已存在: {create_error}")
+                    
+                    db_manager.log_interaction(
+                        user_id=random_user_id,
+                        interaction_type='text',
+                        content=message,
+                        response=full_text,
+                        session_id=session_id,
+                        success=True
+                    )
+                    logger.info(f"✅ 交互记录成功: {random_user_id}")
+                except Exception as db_error:
+                    logger.warning(f"⚠️ 记录交互到数据库失败: {db_error}")
+                
             except Exception as e:
                 logger.error(f"❌ 流式响应生成失败: {e}")
                 error_chunk = {
@@ -1100,6 +1142,20 @@ def chat_streaming():
                     'message': f'流式响应失败: {str(e)}'
                 }
                 yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+                
+                # 记录失败的交互
+                try:
+                    db_manager.log_interaction(
+                        user_id=user_id,
+                        interaction_type='text',
+                        content=message,
+                        response='',
+                        session_id=session_id,
+                        success=False,
+                        error_message=str(e)
+                    )
+                except Exception as db_error:
+                    logger.warning(f"⚠️ 记录失败交互到数据库失败: {db_error}")
         
         return app.response_class(
             generate_streaming_response(),
@@ -1124,10 +1180,39 @@ def chat():
             return jsonify({'error': 'No message provided'}), 400
         
         message = data['message']
+        user_id = data.get('user_id', 'anonymous')
+        session_id = data.get('session_id', '')
         logger.info(f"🤖 收到聊天请求: {message}")
         
         # 调用DeepSeek API
         ai_response = chat_with_deepseek(message)
+        
+        # 记录交互到数据库
+        try:
+            # 使用随机user_id，确保数据库记录
+            import uuid
+            random_user_id = f"user_{uuid.uuid4().hex[:8]}"
+            
+            # 先创建用户（如果不存在）
+            try:
+                password_hash = db_manager.hash_password("random_password")
+                db_manager.create_user(random_user_id, f"user_{int(time.time())}", password_hash)
+                logger.info(f"✅ 创建随机用户: {random_user_id}")
+            except Exception as create_error:
+                # 用户可能已存在，继续使用
+                logger.debug(f"用户可能已存在: {create_error}")
+            
+            db_manager.log_interaction(
+                user_id=random_user_id,
+                interaction_type='text',
+                content=message,
+                response=ai_response,
+                session_id=session_id,
+                success=True
+            )
+            logger.info(f"✅ 交互记录成功: {random_user_id}")
+        except Exception as db_error:
+            logger.warning(f"⚠️ 记录交互到数据库失败: {db_error}")
         
         return jsonify({'response': ai_response})
         
@@ -1186,7 +1271,7 @@ def tts_health_check():
         
         if audio_data and len(audio_data) > 1000:  # 至少1KB
             return jsonify({
-                'status': 'healthy',
+                'status': 'healthy', 
                 'service': 'edge-tts',
                 'response_time': round(response_time, 2),
                 'audio_size': len(audio_data),
@@ -1274,6 +1359,238 @@ def tts_stats():
             }
         })
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==================== 数据库相关API ====================
+
+@app.route('/api/auth/login', methods=['POST'])
+def user_login():
+    """用户登录"""
+    try:
+        data = request.get_json()
+        if not data or 'username' not in data or 'password' not in data:
+            return jsonify({'error': '用户名和密码不能为空'}), 400
+        
+        username = data['username']
+        password = data['password']
+        device_info = data.get('device_info', '')
+        ip_address = request.remote_addr
+        user_agent = request.headers.get('User-Agent', '')
+        
+        # 用户认证
+        user = db_manager.authenticate_user(username, password)
+        if not user:
+            db_manager.log_system_event('WARNING', 'auth', f'登录失败: {username}', 
+                                      {'ip': ip_address, 'user_agent': user_agent})
+            return jsonify({'error': '用户名或密码错误'}), 401
+        
+        # 创建会话
+        session_id = db_manager.create_session(user['user_id'], device_info, ip_address, user_agent)
+        if not session_id:
+            return jsonify({'error': '创建会话失败'}), 500
+        
+        logger.info(f"✅ 用户登录成功: {username}")
+        db_manager.log_system_event('INFO', 'auth', f'用户登录成功: {username}', 
+                                  {'user_id': user['user_id'], 'session_id': session_id})
+        
+        return jsonify({
+            'success': True,
+            'user': {
+                'user_id': user['user_id'],
+                'username': user['username'],
+                'created_at': user['created_at'].isoformat() if user['created_at'] else None,
+                'last_login_at': user['last_login_at'].isoformat() if user['last_login_at'] else None
+            },
+            'session_id': session_id
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 用户登录失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/logout', methods=['POST'])
+def user_logout():
+    """用户登出"""
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return jsonify({'error': '会话ID不能为空'}), 400
+        
+        session_id = data['session_id']
+        
+        # 结束会话
+        db_manager.end_session(session_id)
+        
+        # 获取用户ID并更新登出时间
+        # 这里需要从session_id获取user_id，简化处理
+        logger.info(f"✅ 用户登出成功: {session_id}")
+        db_manager.log_system_event('INFO', 'auth', f'用户登出: {session_id}')
+        
+        return jsonify({'success': True, 'message': '登出成功'})
+        
+    except Exception as e:
+        logger.error(f"❌ 用户登出失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/register', methods=['POST'])
+def user_register():
+    """用户注册"""
+    try:
+        data = request.get_json()
+        if not data or 'username' not in data or 'password' not in data:
+            return jsonify({'error': '用户名和密码不能为空'}), 400
+        
+        username = data['username']
+        password = data['password']
+        
+        # 检查用户名是否已存在
+        if db_manager.get_user_by_username(username):
+            return jsonify({'error': '用户名已存在'}), 400
+        
+        # 生成用户ID
+        import uuid
+        user_id = f"user_{uuid.uuid4().hex[:8]}"
+        
+        # 创建用户
+        password_hash = db_manager.hash_password(password)
+        success = db_manager.create_user(user_id, username, password_hash)
+        
+        if not success:
+            return jsonify({'error': '创建用户失败'}), 500
+        
+        logger.info(f"✅ 用户注册成功: {username}")
+        db_manager.log_system_event('INFO', 'auth', f'用户注册成功: {username}', 
+                                  {'user_id': user_id})
+        
+        return jsonify({
+            'success': True,
+            'message': '注册成功',
+            'user_id': user_id
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 用户注册失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/interactions/log', methods=['POST'])
+def log_interaction():
+    """记录交互"""
+    try:
+        data = request.get_json()
+        if not data or 'user_id' not in data or 'interaction_type' not in data or 'content' not in data:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        user_id = data['user_id']
+        interaction_type = data['interaction_type']
+        content = data['content']
+        response = data.get('response', '')
+        session_id = data.get('session_id', '')
+        duration_seconds = data.get('duration_seconds', 0)
+        success = data.get('success', True)
+        error_message = data.get('error_message', '')
+        
+        # 验证交互类型
+        valid_types = ['text', 'voice_home', 'voice_call']
+        if interaction_type not in valid_types:
+            return jsonify({'error': f'无效的交互类型，必须是: {valid_types}'}), 400
+        
+        # 记录交互
+        success_log = db_manager.log_interaction(
+            user_id=user_id,
+            interaction_type=interaction_type,
+            content=content,
+            response=response,
+            session_id=session_id,
+            duration_seconds=duration_seconds,
+            success=success,
+            error_message=error_message
+        )
+        
+        if not success_log:
+            return jsonify({'error': '记录交互失败'}), 500
+        
+        return jsonify({'success': True, 'message': '交互记录成功'})
+        
+    except Exception as e:
+        logger.error(f"❌ 记录交互失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/interactions/history', methods=['GET'])
+def get_interaction_history():
+    """获取交互历史"""
+    try:
+        user_id = request.args.get('user_id')
+        if not user_id:
+            return jsonify({'error': '用户ID不能为空'}), 400
+        
+        limit = int(request.args.get('limit', 50))
+        offset = int(request.args.get('offset', 0))
+        
+        interactions = db_manager.get_user_interactions(user_id, limit, offset)
+        
+        return jsonify({
+            'success': True,
+            'interactions': interactions,
+            'count': len(interactions)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 获取交互历史失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/stats/interactions', methods=['GET'])
+def get_interaction_stats():
+    """获取交互统计"""
+    try:
+        user_id = request.args.get('user_id')
+        days = int(request.args.get('days', 30))
+        
+        stats = db_manager.get_interaction_stats(user_id, days)
+        
+        return jsonify({
+            'success': True,
+            'stats': stats,
+            'period_days': days
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 获取交互统计失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/stats/active_users', methods=['GET'])
+def get_active_users():
+    """获取活跃用户"""
+    try:
+        hours = int(request.args.get('hours', 24))
+        users = db_manager.get_active_users(hours)
+        
+        return jsonify({
+            'success': True,
+            'active_users': users,
+            'period_hours': hours,
+            'count': len(users)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 获取活跃用户失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/cleanup', methods=['POST'])
+def cleanup_old_data():
+    """清理旧数据（管理员功能）"""
+    try:
+        data = request.get_json() or {}
+        days = data.get('days', 90)
+        
+        db_manager.cleanup_old_data(days)
+        
+        return jsonify({
+            'success': True,
+            'message': f'已清理 {days} 天前的旧数据'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 清理旧数据失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

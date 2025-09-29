@@ -8,6 +8,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import com.llasm.nexusunified.network.StreamingResponse
+import com.llasm.nexusunified.config.ServerConfig
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -20,7 +21,7 @@ class StreamingAIService(private val context: Context) {
     
     companion object {
         private const val TAG = "StreamingAIService"
-        private const val AI_BACKEND_URL = "http://192.168.64.85:5000"  // 使用NEXUS后端服务器
+        private val AI_BACKEND_URL = ServerConfig.CURRENT_SERVER
         private const val STREAMING_CHAT_ENDPOINT = "/api/chat_streaming"
     }
     
@@ -62,6 +63,8 @@ class StreamingAIService(private val context: Context) {
                 val requestBody = JSONObject().apply {
                     put("message", message)
                     put("conversation_history", historyArray)
+                    put("user_id", ServerConfig.ANDROID_USER_ID)
+                    put("session_id", ServerConfig.ANDROID_SESSION_ID)
                 }.toString().toRequestBody("application/json".toMediaType())
                 
                 val request = Request.Builder()

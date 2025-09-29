@@ -10,6 +10,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import com.llasm.nexusunified.config.ServerConfig
 
 /**
  * 监控客户端 - 向前端监控后端发送状态信息
@@ -20,7 +21,7 @@ class MonitorClient(private val context: Context) {
         private const val TAG = "MonitorClient"
         // 支持多种网络环境的URL配置
         private val MONITOR_URLS = listOf(
-            "http://192.168.64.85:5000"   // 使用NEXUS后端服务器
+            ServerConfig.CURRENT_SERVER
         )
         private var currentUrlIndex = 0
         private var MONITOR_BASE_URL = MONITOR_URLS[0]

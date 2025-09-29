@@ -18,6 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
+import com.llasm.nexusunified.config.ServerConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
@@ -48,8 +49,8 @@ class ASRService(private val context: Context) {
         private const val SAMPLE_RATE = 16000
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val API_URL = "http://192.168.64.85:5000/api/transcribe"  // 使用NEXUS后端服务器
-        private const val STATUS_API_URL = "http://192.168.64.85:5000/api/asr/status"  // ASR状态查询API
+        private val API_URL = ServerConfig.getApiUrl("transcribe")
+        private val STATUS_API_URL = ServerConfig.getApiUrl("asr/status")
         private const val STATUS_POLL_INTERVAL = 1000L  // 状态轮询间隔（毫秒）
     }
     

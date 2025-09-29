@@ -21,10 +21,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.llasm.nexusunified.ui.ChatScreen
-import com.llasm.nexusunified.ui.VoiceCallScreen
 import com.llasm.nexusunified.ui.theme.NEXUSUnifiedTheme
 import com.llasm.nexusunified.viewmodel.ChatViewModel
-import com.llasm.nexusunified.viewmodel.VoiceCallViewModel
 // import com.llasm.nexusunified.controller.SyncController // 暂时禁用同步功能
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -114,7 +112,6 @@ fun MainScreen(
 ) {
     val chatViewModel: ChatViewModel = viewModel()
     val context = LocalContext.current
-    var showVoiceCall by remember { mutableStateOf(false) }
     
     // 通知MainActivity chatViewModel已创建
     LaunchedEffect(chatViewModel) {
@@ -128,17 +125,14 @@ fun MainScreen(
         }
     }
     
-    if (showVoiceCall) {
-        VoiceCallScreen(
-            onBackClick = { showVoiceCall = false },
-            viewModel = viewModel()
-        )
-    } else {
-        ChatScreen(
-            onVoiceCallClick = { showVoiceCall = true },
-            viewModel = chatViewModel
-        )
-    }
+    ChatScreen(
+        onVoiceCallClick = { 
+            // 启动电话模式Activity
+            val intent = Intent(context, VoiceCallActivity::class.java)
+            context.startActivity(intent)
+        },
+        viewModel = chatViewModel
+    )
 }
 
 @Preview(showBackground = true)

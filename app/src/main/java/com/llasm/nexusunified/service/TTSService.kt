@@ -3,6 +3,7 @@ package com.llasm.nexusunified.service
 import android.content.Context
 import android.media.MediaPlayer
 import android.util.Log
+import com.llasm.nexusunified.config.ServerConfig
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
@@ -14,7 +15,7 @@ class TTSService(private val context: Context) {
     companion object {
         private const val TAG = "TTSService"
         // 使用真机连接时的电脑IP地址
-        private const val BACKEND_URL = "http://192.168.64.85:5000"
+        private val BACKEND_URL = ServerConfig.CURRENT_SERVER
         private const val TTS_ENDPOINT = "/api/tts"
     }
     

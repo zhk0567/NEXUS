@@ -91,6 +91,7 @@ class RealtimeWebSocketClient(
     
     // 音频处理状态
     private var lastAudioData: ByteArray? = null
+    private var hasSentEndSignal = false
     
     // 协程作用域
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -289,6 +290,9 @@ class RealtimeWebSocketClient(
                         put("format", "pcm_s16le")  // 使用16位格式，符合官方文档
                         put("sample_rate", 24000)
                     })
+                    put("text_config", JSONObject().apply {
+                        put("enable", true)  // 启用文本输出
+                    })
                 })
                 put("dialog", JSONObject().apply {
                     put("bot_name", "豆包")
@@ -318,6 +322,7 @@ class RealtimeWebSocketClient(
             }.toByteArray()
             
             webSocket?.send(ByteString.of(*request))
+            hasSentEndSignal = false // 重置结束信号标志
             Log.d(TAG, "发送启动会话请求")
             onMessage("📤 StartSession请求已发送 (${request.size} 字节)")
             
@@ -481,8 +486,52 @@ class RealtimeWebSocketClient(
             
             Log.d(TAG, "发送静音块完成")
             
+            // 不在这里发送结束信号，等待语音识别完成后再发送
+            
         } catch (e: Exception) {
             Log.e(TAG, "发送静音块失败", e)
+        }
+    }
+    
+    /**
+     * 发送结束信号
+     */
+    private suspend fun sendEndSignal() {
+        // 防止重复发送结束信号
+        if (hasSentEndSignal) {
+            Log.d(TAG, "结束信号已发送，跳过重复发送")
+            return
+        }
+        
+        try {
+            // 根据火山引擎文档，结束信号应该使用特定的payload格式
+            val payload = JSONObject().apply {
+                put("event", "end")
+                put("timestamp", System.currentTimeMillis())
+            }
+            val compressedPayload = gzipCompress(payload.toString().toByteArray())
+            
+            val header = generateHeader(
+                messageType = CLIENT_AUDIO_ONLY_REQUEST,
+                messageTypeSpecificFlags = MSG_WITH_EVENT,
+                serialMethod = JSON
+            )
+            
+            val request = ByteArrayOutputStream().apply {
+                write(header)
+                write(intToBytes(300, 4)) // event - 结束信号
+                write(intToBytes(sessionId.length, 4)) // session id length
+                write(sessionId.toByteArray()) // session id
+                write(intToBytes(compressedPayload.size, 4)) // payload size
+                write(compressedPayload) // 写入压缩后的payload
+            }.toByteArray()
+            
+            webSocket?.send(ByteString.of(*request))
+            hasSentEndSignal = true
+            Log.d(TAG, "发送结束信号: ${payload.toString()}")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "发送结束信号失败", e)
         }
     }
     
@@ -577,14 +626,14 @@ class RealtimeWebSocketClient(
                         Log.d(TAG, "payload字段: ${payload.keys()}")
                         Log.d(TAG, "完整payload: ${payload.toString()}")
                         
-                        // 通用AI回复检查 - 对所有消息类型都检查
-                        val possibleFields = listOf("content", "text", "message", "response", "result", "answer", "reply", "data")
+                        // 通用AI回复检查 - 只记录日志，不重复处理
+                        val possibleFields = listOf("content", "text", "message", "response", "result", "answer", "reply", "data", "transcript", "transcription", "output", "ai_response", "ai_output")
                         for (field in possibleFields) {
                             if (payload.has(field)) {
                                 val content = payload.getString(field)
                                 Log.d(TAG, "发现字段'$field': $content")
-                                // 检查是否包含中文字符或常见AI回复模式
-                                if (content.length > 3 && (
+                                // 只记录日志，不调用onTextOutput，避免重复处理
+                                if (content.length > 1 && (
                                     content.matches(Regex(".*[\\u4e00-\\u9fa5].*")) || // 包含中文字符
                                     content.contains("你好") || 
                                     content.contains("谢谢") || 
@@ -592,14 +641,17 @@ class RealtimeWebSocketClient(
                                     content.contains("问题") ||
                                     content.contains("回答") ||
                                     content.contains("AI") ||
-                                    content.contains("助手")
+                                    content.contains("助手") ||
+                                    content.contains("散步") ||
+                                    content.contains("晚上") ||
+                                    content.contains("好") ||
+                                    content.contains("！") ||
+                                    content.contains("？") ||
+                                    content.contains("。")
                                 )) {
                                     onMessage("🤖 通用检测到AI回复: $content")
                                     Log.d(TAG, "从事件${event ?: "未知"}的字段'$field'检测到AI回复: $content")
-                                    Log.d(TAG, "=== 调用onTextOutput ===")
-                                    Log.d(TAG, "传入内容: '$content'")
-                                    onTextOutput(content)
-                                    Log.d(TAG, "=== onTextOutput调用完成 ===")
+                                    // 不在这里调用onTextOutput，避免重复处理
                                     break
                                 }
                             }
@@ -628,26 +680,40 @@ class RealtimeWebSocketClient(
                         450 -> {
                             Log.d(TAG, "AI开始响应，清空音频缓存")
                             onMessage("🤖 AI开始响应...")
+                            
+                            // 简化逻辑：AI开始响应后立即发送结束信号
+                            if (!hasSentEndSignal) {
+                                GlobalScope.launch {
+                                    delay(2000) // 等待2秒确保语音识别完成
+                                    if (!hasSentEndSignal) {
+                                        Log.d(TAG, "AI开始响应，发送结束信号")
+                                        sendEndSignal()
+                                        onMessage("⏳ 等待AI回复...")
+                                    }
+                                }
+                            }
                         }
                         200 -> {
-                            // 语音识别结果
+                            // 语音识别结果 - 只记录日志，不重复处理
                             if (payload is JSONObject && payload.has("text")) {
                                 val text = payload.getString("text")
                                 onMessage("🎤 语音识别: $text")
+                                Log.d(TAG, "=== 语音识别结果处理 (消息200) ===")
                                 Log.d(TAG, "语音识别结果: '$text'")
-                                // 调用语音识别结果回调
-                                onTranscriptionResult(text)
+                                Log.d(TAG, "文本长度: ${text.length}")
+                                // 不在这里调用onTranscriptionResult，避免重复处理
+                                Log.d(TAG, "=== 语音识别结果处理完成 (消息200) ===")
                             }
-                            // 检查是否包含AI回复
+                            // 检查是否包含AI回复 - 只记录日志，不重复处理
                             if (payload is JSONObject) {
                                 val possibleFields = listOf("content", "text", "message", "response", "result", "answer")
                                 for (field in possibleFields) {
                                     if (payload.has(field)) {
                                         val content = payload.getString(field)
-                                        if (content.length > 5 && content.matches(Regex(".*[\\u4e00-\\u9fa5].*"))) {
+                                        if (content.length > 1 && content.matches(Regex(".*[\\u4e00-\\u9fa5].*"))) {
                                             onMessage("🤖 检测到AI回复: $content")
                                             Log.d(TAG, "从消息类型200的字段'$field'检测到AI回复: $content")
-                                            onTextOutput(content)
+                                            // 不在这里调用onTextOutput，避免重复处理
                                             break
                                         }
                                     }
@@ -660,16 +726,16 @@ class RealtimeWebSocketClient(
                                 val text = payload.getString("text")
                                 onMessage("🎤 部分识别: $text")
                             }
-                            // 检查是否包含AI回复
+                            // 检查是否包含AI回复 - 只记录日志，不重复处理
                             if (payload is JSONObject) {
                                 val possibleFields = listOf("content", "text", "message", "response", "result", "answer")
                                 for (field in possibleFields) {
                                     if (payload.has(field)) {
                                         val content = payload.getString(field)
-                                        if (content.length > 5 && content.matches(Regex(".*[\\u4e00-\\u9fa5].*"))) {
+                                        if (content.length > 1 && content.matches(Regex(".*[\\u4e00-\\u9fa5].*"))) {
                                             onMessage("🤖 检测到AI回复: $content")
                                             Log.d(TAG, "从消息类型201的字段'$field'检测到AI回复: $content")
-                                            onTextOutput(content)
+                                            // 不在这里调用onTextOutput，避免重复处理
                                             break
                                         }
                                     }
@@ -683,60 +749,116 @@ class RealtimeWebSocketClient(
                                 onMessage("📊 识别状态: $status")
                             }
                         }
+                        451 -> {
+                            // 语音识别结果（包括部分和最终结果）
+                            if (payload is JSONObject) {
+                                // 检查results字段中的识别结果
+                                if (payload.has("results")) {
+                                    val results = payload.getJSONArray("results")
+                                    if (results.length() > 0) {
+                                        val firstResult = results.getJSONObject(0)
+                                        if (firstResult.has("text")) {
+                                            val text = firstResult.getString("text")
+                                            val isInterim = firstResult.optBoolean("is_interim", true)
+                                            
+                                            // 只处理非临时结果，避免重复记录
+                                            if (!isInterim && text.isNotEmpty()) {
+                                                Log.d(TAG, "=== 最终语音识别结果 ===")
+                                                Log.d(TAG, "最终识别结果: '$text'")
+                                                onMessage("🎤 语音识别完成: $text")
+                                                onTranscriptionResult(text)
+                                                
+                                                // 发送结束信号
+                                                if (!hasSentEndSignal) {
+                                                    GlobalScope.launch {
+                                                        delay(1000) // 等待1秒确保结果完整
+                                                        if (!hasSentEndSignal) {
+                                                            Log.d(TAG, "发送结束信号")
+                                                            sendEndSignal()
+                                                            onMessage("⏳ 等待AI回复...")
+                                                        }
+                                                    }
+                                                }
+                                            } else if (isInterim) {
+                                                // 临时结果只显示，不记录到数据库
+                                                onMessage("🎤 识别中: $text")
+                                                Log.d(TAG, "临时识别结果: '$text'")
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // 检查是否包含AI回复 - 只记录日志，不重复处理
+                                val possibleFields = listOf("content", "text", "message", "response", "result", "answer")
+                                for (field in possibleFields) {
+                                    if (payload.has(field)) {
+                                        val content = payload.getString(field)
+                                        if (content.length > 1 && content.matches(Regex(".*[\\u4e00-\\u9fa5].*"))) {
+                                            onMessage("🤖 检测到AI回复: $content")
+                                            Log.d(TAG, "从消息类型451的字段'$field'检测到AI回复: $content")
+                                            // 不在这里调用onTextOutput，避免重复处理
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         300 -> {
                             // 其他响应
                             if (payload is JSONObject) {
-                                Log.d(TAG, "收到消息类型300，payload: $payload")
                                 // 检查是否包含AI回复内容
                                 val possibleFields = listOf("content", "text", "message", "response", "result")
                                 for (field in possibleFields) {
                                     if (payload.has(field)) {
                                         val content = payload.getString(field)
-                                        onMessage("📝 服务器消息: $content")
-                                        Log.d(TAG, "从消息类型300的字段'$field'提取到内容: $content")
-                                        // 尝试作为字幕内容
-                                        onTextOutput(content)
-                                        break
+                                        if (content.isNotEmpty() && content.length > 1) {
+                                            onMessage("📝 服务器消息: $content")
+                                            Log.d(TAG, "=== 消息类型300 AI回复处理 ===")
+                                            Log.d(TAG, "AI回复内容: '$content'")
+                                            Log.d(TAG, "内容长度: ${content.length}")
+                                            onTextOutput(content)
+                                            Log.d(TAG, "=== onTextOutput调用完成 (消息类型300) ===")
+                                            break
+                                        }
                                     }
                                 }
                             }
                         }
-                        459 -> {
-                            // 对话结束
-                            onMessage("✅ AI响应结束")
-                            Log.d(TAG, "收到消息类型459，payload: $payload")
+                        350 -> {
+                            // TTS开始信号
+                            onMessage("🎵 TTS开始")
+                        }
+                        351 -> {
+                            // TTS结束信号
+                            onMessage("🎵 TTS结束")
+                            // 音频播放完成，通知UI响应完成
+                            onResponseComplete()
+                        }
+                        550 -> {
+                            // AI回复内容
                             if (payload is JSONObject) {
-                                Log.d(TAG, "payload是JSONObject，包含字段: ${payload.keys()}")
-                                
-                                // 尝试多种可能的字段名
                                 val possibleFields = listOf("content", "text", "message", "response", "result")
-                                var foundContent = false
-                                
                                 for (field in possibleFields) {
                                     if (payload.has(field)) {
                                         val content = payload.getString(field)
-                                        onMessage("🤖 AI回复: $content")
-                                        Log.d(TAG, "从字段'$field'提取到内容: $content")
-                                        // 将豆包的文字输出作为字幕
-                                        onTextOutput(content)
-                                        foundContent = true
-                                        break
+                                        if (content.isNotEmpty() && content.length > 1) {
+                                            onMessage("🤖 AI回复: $content")
+                                            Log.d(TAG, "=== 消息类型550 AI回复处理 ===")
+                                            Log.d(TAG, "AI回复内容: '$content'")
+                                            Log.d(TAG, "内容长度: ${content.length}")
+                                            onTextOutput(content)
+                                            Log.d(TAG, "=== onTextOutput调用完成 (消息类型550) ===")
+                                            break
+                                        }
                                     }
                                 }
-                                
-                                if (!foundContent) {
-                                    Log.w(TAG, "payload中没有找到任何内容字段，尝试的字段: $possibleFields")
-                                    onMessage("⚠️ 响应中没有找到文字内容")
-                                    
-                                    // 输出完整的payload用于调试
-                                    Log.d(TAG, "完整payload内容: ${payload.toString()}")
-                                }
-                            } else {
-                                Log.w(TAG, "payload不是JSONObject: ${payload?.javaClass?.simpleName}")
-                                Log.d(TAG, "payload内容: $payload")
                             }
-                            // 通知UI响应完成，重置状态
-                            onResponseComplete()
+                            // 不立即调用onResponseComplete，等待音频播放完成
+                        }
+                        459 -> {
+                            // 对话结束信号，但不立即调用onResponseComplete
+                            onMessage("✅ 对话结束信号")
+                            // 不在这里调用onResponseComplete，等待AI实际回复
                         }
                     }
                 }

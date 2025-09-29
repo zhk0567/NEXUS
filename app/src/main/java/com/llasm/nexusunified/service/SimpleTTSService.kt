@@ -3,6 +3,7 @@ package com.llasm.nexusunified.service
 import android.content.Context
 import android.media.MediaPlayer
 import android.util.Log
+import com.llasm.nexusunified.config.ServerConfig
 import kotlinx.coroutines.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -17,7 +18,7 @@ class SimpleTTSService(private val context: Context) {
     
     companion object {
         private const val TAG = "SimpleTTSService"
-        private const val API_URL = "http://192.168.64.85:5000/api/tts"  // 使用NEXUS后端服务器
+        private val API_URL = ServerConfig.getApiUrl("tts")
     }
     
     private val httpClient = OkHttpClient.Builder()

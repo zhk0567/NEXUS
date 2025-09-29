@@ -1,5 +1,6 @@
 package com.llasm.nexusunified.network
 
+import com.llasm.nexusunified.config.ServerConfig
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -7,7 +8,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object NetworkModule {
-    private const val BASE_URL = "http://10.0.2.2:5000/" // Android模拟器访问本地服务器
+    private val BASE_URL = ServerConfig.CURRENT_SERVER
     
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
