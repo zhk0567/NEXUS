@@ -38,3 +38,6 @@ cryptography==41.0.7
 
 # Additional Utilities
 python-dotenv==1.0.0
+
+# Tunnel Dependencies
+pyngrok==7.0.0

@@ -62,7 +62,6 @@ class VoiceCallActivity : Activity() {
     private var webSocketClient: RealtimeWebSocketClient? = null
     private var audioManager: RealtimeAudioManager? = null
     private var aiService: AIService? = null
-    private var monitorClient: com.llasm.nexusunified.network.MonitorClient? = null
     private var isRecording = false
     private var isConnected = false
     private var isWaitingForResponse = false
@@ -70,9 +69,8 @@ class VoiceCallActivity : Activity() {
     // 音频处理状态
     private var currentAudioData: ByteArray? = null
     
-    // 录音时间限制
+    // 录音时间记录
     private var recordingStartTime = 0L
-    private val MIN_RECORDING_TIME_MS = 2000L // 2秒最小录音时间
 
     // 协程作用域
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -97,6 +95,9 @@ class VoiceCallActivity : Activity() {
     private var lastAIOutputTime = 0L
     private val minIntervalMs = 500L // 最小间隔0.5秒，降低严格程度
     
+    // 累积用户输入文本，避免分片记录
+    private var accumulatedUserInput = ""
+    
     // 对话配对机制
     private var pendingUserInput: String? = null
     private var pendingAIResponse: String? = null
@@ -119,8 +120,6 @@ class VoiceCallActivity : Activity() {
 
         initViews()
         initAIService()
-        initMonitorClient()
-        sendInitialStatus()
         requestPermissions()
     }
 
@@ -136,13 +135,27 @@ class VoiceCallActivity : Activity() {
         }
 
         mPauseBtn = findViewById(R.id.pause_button)
-        mPauseBtn.setOnClickListener { 
-            if (isRecording) {
-                showLogMessage("⏸️ 暂停录音")
-                stopRecording()
-            } else {
-                showLogMessage("▶️ 开始录音")
-                startRecording()
+        mPauseBtn.setOnTouchListener { _, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    if (isConnected && !isRecording && !isWaitingForResponse) {
+                        showLogMessage("🎤 开始录音...")
+                        startRecording()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    if (isRecording) {
+                        showLogMessage("⏹️ 停止录音")
+                        stopRecording()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                else -> false
             }
         }
 
@@ -161,7 +174,7 @@ class VoiceCallActivity : Activity() {
         updateButtonStates()
         mStatusTv.text = "正在连接..."
         mHintTv.text = "正在建立连接..."
-        mResultTv.text = "应用已启动，等待您开始对话..."
+        mResultTv.text = "应用已启动，连接成功后请长按录音按钮开始对话..."
     }
     
     private fun initAIService() {
@@ -173,34 +186,6 @@ class VoiceCallActivity : Activity() {
         }
     }
     
-    private fun initMonitorClient() {
-        try {
-            monitorClient = com.llasm.nexusunified.network.MonitorClient(this)
-            Log.d(TAG, "监控客户端初始化成功")
-        } catch (e: Exception) {
-            Log.e(TAG, "监控客户端初始化失败", e)
-        }
-    }
-    
-    private fun sendInitialStatus() {
-        try {
-            val monitorClient = com.llasm.nexusunified.network.MonitorClient(this)
-            monitorClient.sendAppStatus(
-                appVersion = "1.0.0",
-                isActive = true,
-                currentScreen = "VoiceCall",
-                lastActivity = "应用启动",
-                memoryUsage = 0.0,
-                cpuUsage = 0.0,
-                networkStatus = "unknown",
-                apiCallsCount = 0,
-                errorCount = 0
-            )
-            Log.d(TAG, "初始状态已发送到监控后端")
-        } catch (e: Exception) {
-            Log.e(TAG, "发送初始状态失败", e)
-        }
-    }
 
     private fun requestPermissions() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
@@ -273,7 +258,7 @@ class VoiceCallActivity : Activity() {
                         showLogMessage("❌ 连接错误: $error")
                         isConnected = false
                         isWaitingForResponse = false  // 重置等待状态
-                        mStatusTv.text = "准备就绪，点击开始录音"
+                        mStatusTv.text = "准备就绪，长按录音按钮"
                         updateButtonStates()
                     }
                 },
@@ -283,8 +268,8 @@ class VoiceCallActivity : Activity() {
                         isConnected = true
                         updateButtonStates()
                         
-                        // 连接成功后自动开始录音
-                        autoStartRecording()
+                        // 连接成功后不自动开始录音，等待用户长按
+                        showLogMessage("🎤 请长按录音按钮开始说话")
                     }
                 },
                 onDisconnected = {
@@ -296,16 +281,25 @@ class VoiceCallActivity : Activity() {
                 },
                 onTranscriptionResult = { text ->
                     runOnUiThread {
-                        // 记录用户语音识别结果到数据库
+                        // 累积语音识别结果，不立即记录到数据库
                         if (text.isNotEmpty() && text.length > 2) { // 只记录有意义的完整句子
                             showLogMessage("🎤 用户: $text")
                             
+                            // 累积用户输入文本
+                            if (accumulatedUserInput.isEmpty()) {
+                                accumulatedUserInput = text
+                            } else {
+                                // 如果新文本与累积文本不同，更新累积文本
+                                if (text != accumulatedUserInput) {
+                                    accumulatedUserInput = text
+                                }
+                            }
+                            
                             // 设置待配对用户输入
                             pendingUserInput = text
-                            Log.d(TAG, "📝 设置待配对用户输入: $text")
+                            Log.d(TAG, "📝 累积用户输入: $accumulatedUserInput")
                             
-                            // 记录用户输入到数据库
-                            logInteractionToDatabase(text, "", true)
+                            // 不立即记录到数据库，等待对话完成时再记录
                         }
                     }
                 },
@@ -317,7 +311,18 @@ class VoiceCallActivity : Activity() {
                             Log.d(TAG, "=== 电话模式AI回复处理 ===")
                             Log.d(TAG, "AI回复内容: '$text'")
                             Log.d(TAG, "内容长度: ${text.length}")
-                            logInteractionToDatabase("", text, false)
+                            
+                            // 记录完整的对话到数据库（用户输入+AI回复）
+                            if (accumulatedUserInput.isNotEmpty()) {
+                                logInteractionToDatabase(accumulatedUserInput, text, true)
+                                Log.d(TAG, "📝 记录完整对话: 用户='$accumulatedUserInput', AI='$text'")
+                                // 清空累积的用户输入
+                                accumulatedUserInput = ""
+                            } else {
+                                // 如果没有累积的用户输入，只记录AI回复
+                                logInteractionToDatabase("", text, false)
+                            }
+                            
                             Log.d(TAG, "=== 电话模式AI回复处理完成 ===")
                         } else {
                             Log.d(TAG, "⚠️ AI回复被过滤: '$text' (长度: ${text.length})")
@@ -335,16 +340,8 @@ class VoiceCallActivity : Activity() {
                         // 清理状态
                         currentAudioData = null
                         
-                        // AI回复完成后，延迟2秒再开始下一轮录音
-                        scope.launch {
-                            delay(2000) // 等待2秒
-                            runOnUiThread {
-                                if (isConnected && !isRecording && !isWaitingForResponse) {
-                                    showLogMessage("🎤 准备下一轮对话，自动开始录音...")
-                                    startRecording()
-                                }
-                            }
-                        }
+                        // AI回复完成后，等待用户长按开始下一轮录音
+                        showLogMessage("🎤 准备下一轮对话，请长按录音按钮")
                     }
                 },
             )
@@ -409,13 +406,7 @@ class VoiceCallActivity : Activity() {
         }
 
         try {
-            // 检查录音时间是否达到最小要求
             val recordingDuration = System.currentTimeMillis() - recordingStartTime
-            if (recordingDuration < MIN_RECORDING_TIME_MS) {
-                val remainingTime = (MIN_RECORDING_TIME_MS - recordingDuration) / 1000.0
-                showLogMessage("⚠️ 录音时间不足2秒，还需 ${String.format("%.1f", remainingTime)} 秒")
-                return
-            }
             
             isRecording = false
             isWaitingForResponse = true  // 立即设置等待状态
@@ -430,7 +421,7 @@ class VoiceCallActivity : Activity() {
             if (audioData == null) {
                 showLogMessage("❌ 录音失败，请重试")
                 isWaitingForResponse = false
-                mStatusTv.text = "准备就绪，点击开始录音"
+                mStatusTv.text = "准备就绪，长按录音按钮"
                 updateButtonStates()
                 return
             }
@@ -483,8 +474,8 @@ class VoiceCallActivity : Activity() {
                 
                 showLogMessage("📤 语音已发送，等待AI回复...")
                 
-                // 等待一段时间让语音识别完成，然后通过HTTP API获取AI回复
-                delay(2000) // 等待2秒让语音识别完成
+                // 等待语音识别完成，然后通过HTTP API获取AI回复
+                delay(500) // 等待0.5秒让语音识别完成
                 
                 // 通过HTTP API获取AI回复
                 getAIResponseViaHTTP()
@@ -509,9 +500,12 @@ class VoiceCallActivity : Activity() {
                 
                 // 构建请求 - 使用用户实际说的话
                 val userMessage = pendingUserInput ?: getRecentUserInput() ?: "用户语音输入"
+                // 获取真实的用户ID
+                val userId = com.llasm.nexusunified.data.UserManager.getUserId() ?: ServerConfig.ANDROID_USER_ID
+                
                 val requestBody = JSONObject().apply {
                     put("message", userMessage)
-                    put("user_id", ServerConfig.ANDROID_USER_ID)
+                    put("user_id", userId)
                     put("session_id", sessionId)
                 }.toString().toRequestBody("application/json".toMediaType())
                 
@@ -594,12 +588,12 @@ class VoiceCallActivity : Activity() {
             mPauseBtn.isEnabled = isConnected && !isWaitingForResponse
             mSubtitleBtn.isEnabled = true
             
-            // 更新暂停/继续按钮文本和颜色
+            // 更新录音按钮文本和颜色（长按模式）
             if (isRecording) {
-                mPauseBtn.text = "⏸️"
+                mPauseBtn.text = "🎤 录音中..."
                 mPauseBtn.setBackgroundResource(R.drawable.button_voice_danger)
             } else {
-                mPauseBtn.text = "▶️"
+                mPauseBtn.text = "🎤 长按录音"
                 mPauseBtn.setBackgroundResource(R.drawable.button_voice_primary)
             }
             
@@ -613,7 +607,7 @@ class VoiceCallActivity : Activity() {
                 }
                 isRecording -> {
                     mStatusTv.text = "正在录音..."
-                    mHintTv.text = "请说话..."
+                    mHintTv.text = "请说话，松开停止录音"
                 }
                 isWaitingForResponse -> {
                     mStatusTv.text = "等待AI回复"
@@ -621,7 +615,7 @@ class VoiceCallActivity : Activity() {
                 }
                 else -> {
                     mStatusTv.text = "准备就绪"
-                    mHintTv.text = "点击开始语音对话"
+                    mHintTv.text = "长按录音按钮开始说话"
                 }
             }
         }
@@ -631,19 +625,6 @@ class VoiceCallActivity : Activity() {
     /**
      * 自动开始录音
      */
-    private fun autoStartRecording() {
-        scope.launch {
-            // 延迟1秒后自动开始录音，确保连接稳定
-            delay(1000)
-            
-            runOnUiThread {
-                if (isConnected && !isRecording && !isWaitingForResponse) {
-                    showLogMessage("🎤 自动开始录音...")
-                    startRecording()
-                }
-            }
-        }
-    }
     
 
     private fun showUserMessage(data: String) {
@@ -827,8 +808,11 @@ class VoiceCallActivity : Activity() {
      */
     private suspend fun recordSingleInteraction(content: String, response: String, isUser: Boolean) {
         try {
+            // 获取真实的用户ID
+            val userId = com.llasm.nexusunified.data.UserManager.getUserId() ?: ServerConfig.ANDROID_USER_ID
+            
             val requestBody = JSONObject().apply {
-                put("user_id", ServerConfig.ANDROID_USER_ID)
+                put("user_id", userId)
                 put("interaction_type", "voice_call")
                 put("content", content)
                 put("response", response)

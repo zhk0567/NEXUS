@@ -51,9 +51,10 @@ class ConversationRepository(private val context: Context) {
      */
     private fun saveConversations() {
         val conversationsJson = gson.toJson(_conversations.value)
-        sharedPreferences.edit()
+        val success = sharedPreferences.edit()
             .putString("conversations", conversationsJson)
-            .apply()
+            .commit()
+        android.util.Log.d("ConversationRepository", "保存对话到SharedPreferences: ${if (success) "成功" else "失败"}")
     }
     
     /**
@@ -72,8 +73,10 @@ class ConversationRepository(private val context: Context) {
      * 开始新对话（清空当前对话）
      */
     fun startNewConversation(): Conversation {
-        _currentConversationId.value = null
-        return createNewConversation()
+        val newConversation = createNewConversation()
+        _currentConversationId.value = newConversation.id
+        android.util.Log.d("ConversationRepository", "开始新对话: ${newConversation.id}")
+        return newConversation
     }
     
     /**

@@ -25,6 +25,14 @@ import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalContext
 import com.llasm.nexusunified.ui.SettingsManager
+import com.llasm.nexusunified.data.UserManager
+import com.llasm.nexusunified.config.ServerConfig
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.OutputStreamWriter
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,7 +41,6 @@ fun SettingsPage(
     onNavigateToAccount: () -> Unit,
     onNavigateToVoice: () -> Unit,
     onNavigateToTheme: () -> Unit,
-    onNavigateToGeneral: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onLogoutClick: () -> Unit
 ) {
@@ -46,9 +53,12 @@ fun SettingsPage(
     val context = LocalContext.current
     LaunchedEffect(Unit) {
         SettingsManager.initializeTheme(context)
+        UserManager.init(context)
     }
     
     val themeColors = SettingsManager.getThemeColors()
+    val isLoggedIn = UserManager.isLoggedIn()
+    val username = UserManager.getUsername()
     
     
     // 退出登录对话框状态
@@ -101,7 +111,11 @@ fun SettingsPage(
                 SettingsItem(
                     icon = Icons.Default.Person,
                     title = "账号设置",
-                    subtitle = "头像、昵称、手机号",
+                    subtitle = if (isLoggedIn) {
+                        "已登录: ${username ?: "未知用户"}"
+                    } else {
+                        "未登录"
+                    },
                     themeColors = themeColors,
                     fontStyle = fontStyle,
                     onClick = onNavigateToAccount
@@ -132,17 +146,6 @@ fun SettingsPage(
                 )
             }
             
-            // 通用设置
-            item {
-                SettingsItem(
-                    icon = Icons.Default.Settings,
-                    title = "通用设置",
-                    subtitle = "消息振动反馈等",
-                    themeColors = themeColors,
-                    fontStyle = fontStyle,
-                    onClick = onNavigateToGeneral
-                )
-            }
             
             // 关于NEXUS
             item {
@@ -156,17 +159,19 @@ fun SettingsPage(
                 )
             }
             
-            // 退出登录
-            item {
-                SettingsItem(
-                    icon = Icons.Default.ExitToApp,
-                    title = "退出登录",
-                    subtitle = "退出当前账号",
-                    themeColors = themeColors,
-                    fontStyle = fontStyle,
-                    onClick = { showLogoutDialog = true },
-                    isDestructive = true
-                )
+            // 退出登录（仅在已登录时显示）
+            if (isLoggedIn) {
+                item {
+                    SettingsItem(
+                        icon = Icons.Default.ExitToApp,
+                        title = "退出登录",
+                        subtitle = "退出当前账号",
+                        themeColors = themeColors,
+                        fontStyle = fontStyle,
+                        onClick = { showLogoutDialog = true },
+                        isDestructive = true
+                    )
+                }
             }
         }
     }
@@ -176,7 +181,16 @@ fun SettingsPage(
         LogoutDialog(
             onConfirm = {
                 showLogoutDialog = false
-                onLogoutClick()
+                // 调用登出API
+                logoutUser { success, message ->
+                    if (success) {
+                        // 登出成功
+                        onLogoutClick()
+                    } else {
+                        // 登出失败，可以显示错误信息
+                        // 这里可以添加错误提示
+                    }
+                }
             },
             onDismiss = { showLogoutDialog = false },
             themeColors = themeColors,
@@ -298,4 +312,63 @@ fun LogoutDialog(
             }
         }
     )
+}
+
+// 登出API调用函数
+fun logoutUser(callback: (Boolean, String?) -> Unit) {
+    Thread {
+        try {
+            val sessionId = UserManager.getSessionId()
+            if (sessionId == null) {
+                callback(false, "未找到会话信息")
+                return@Thread
+            }
+            
+            val url = URL(ServerConfig.getApiUrl(ServerConfig.Endpoints.AUTH_LOGOUT))
+            val connection = url.openConnection() as HttpURLConnection
+            
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.doOutput = true
+            
+            val jsonObject = JSONObject()
+            jsonObject.put("session_id", sessionId)
+            
+            val outputStream = connection.outputStream
+            val writer = OutputStreamWriter(outputStream)
+            writer.write(jsonObject.toString())
+            writer.flush()
+            writer.close()
+            
+            val responseCode = connection.responseCode
+            val inputStream = if (responseCode == HttpURLConnection.HTTP_OK) {
+                connection.inputStream
+            } else {
+                connection.errorStream
+            }
+            
+            val reader = BufferedReader(InputStreamReader(inputStream))
+            val response = StringBuilder()
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                response.append(line)
+            }
+            reader.close()
+            
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                // 登出成功，清除本地用户数据
+                UserManager.logout()
+                callback(true, null)
+            } else {
+                val jsonResponse = JSONObject(response.toString())
+                val errorMessage = jsonResponse.optString("error", "登出失败")
+                callback(false, errorMessage)
+            }
+            
+        } catch (e: Exception) {
+            // 即使网络请求失败，也清除本地数据
+            UserManager.logout()
+            callback(true, null)
+        }
+    }.start()
 }

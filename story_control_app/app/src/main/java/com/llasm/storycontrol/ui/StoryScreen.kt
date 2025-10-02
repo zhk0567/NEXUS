@@ -20,12 +20,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.*
 import com.llasm.storycontrol.data.Story
 import com.llasm.storycontrol.data.StoryRepository
+import com.llasm.storycontrol.service.TTSService
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -36,10 +39,14 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StoryScreen() {
+    val context = LocalContext.current
     val storyRepository = remember { StoryRepository() }
+    val ttsService = remember { TTSService(context) }
+    
     var selectedDate by remember { mutableStateOf(LocalDate.of(2024, 1, 1)) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var isPlaying by remember { mutableStateOf(false) }
     
     // 设置状态监听
     val isDarkMode by SettingsManager.isDarkMode.collectAsState()
@@ -82,6 +89,37 @@ fun StoryScreen() {
                     }
                 },
                 actions = {
+                    // 语音播放按钮
+                    IconButton(
+                        onClick = { 
+                            if (isPlaying) {
+                                ttsService.stopPlayback()
+                                isPlaying = false
+                            } else {
+                                currentStory?.let { story ->
+                                    ttsService.playStoryAudio(
+                                        storyId = story.id,
+                                        storyText = story.content,
+                                        onPlayStart = { isPlaying = true },
+                                        onPlayComplete = { isPlaying = false },
+                                        onError = { error ->
+                                            isPlaying = false
+                                            // 可以显示错误提示
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VolumeUp,
+                            contentDescription = if (isPlaying) "停止播放" else "播放语音",
+                            tint = themeColors.onSurface,
+                            modifier = Modifier.size(fontStyle.iconSize.dp)
+                        )
+                    }
+                    
+                    
                     // 日期选择按钮
                     IconButton(
                         onClick = { showDatePicker = true }
@@ -205,6 +243,7 @@ fun StoryScreen() {
             onDismiss = { showSettingsDialog = false }
         )
     }
+    
 }
 
 /**
@@ -374,7 +413,7 @@ fun SettingsDialog(
                                 .weight(1f)
                                 .clickable { isDarkMode = false },
                             colors = CardDefaults.cardColors(
-                                containerColor = if (!isDarkMode) Color(0xFFE3F2FD) else Color(0xFFF5F5F5)
+                                containerColor = if (!isDarkMode) Color(0xFFE8F5E8) else Color(0xFFF5F5F5)
                             ),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -387,14 +426,14 @@ fun SettingsDialog(
                                 Icon(
                                     imageVector = Icons.Default.LightMode,
                                     contentDescription = "白天模式",
-                                    tint = if (!isDarkMode) Color(0xFF1976D2) else Color(0xFF666666),
+                                    tint = if (!isDarkMode) Color(0xFF07C160) else Color(0xFF666666),
                                     modifier = Modifier.size(32.dp)
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = "白天",
                                     style = fontStyle.bodyMedium,
-                                    color = if (!isDarkMode) Color(0xFF1976D2) else Color(0xFF666666)
+                                    color = if (!isDarkMode) Color(0xFF07C160) else Color(0xFF666666)
                                 )
                             }
                         }
@@ -452,7 +491,7 @@ fun SettingsDialog(
                                 .weight(1f)
                                 .clickable { fontSize = "小" },
                             colors = CardDefaults.cardColors(
-                                containerColor = if (fontSize == "小") Color(0xFFE3F2FD) else Color(0xFFF5F5F5)
+                                containerColor = if (fontSize == "小") Color(0xFFE8F5E8) else Color(0xFFF5F5F5)
                             ),
                             shape = RoundedCornerShape(8.dp)
                         ) {
@@ -462,7 +501,7 @@ fun SettingsDialog(
                                     .fillMaxWidth()
                                     .padding(12.dp),
                                 style = fontStyle.bodySmall,
-                                color = if (fontSize == "小") Color(0xFF1976D2) else Color(0xFF666666),
+                                color = if (fontSize == "小") Color(0xFF07C160) else Color(0xFF666666),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -473,7 +512,7 @@ fun SettingsDialog(
                                 .weight(1f)
                                 .clickable { fontSize = "中" },
                             colors = CardDefaults.cardColors(
-                                containerColor = if (fontSize == "中") Color(0xFFE3F2FD) else Color(0xFFF5F5F5)
+                                containerColor = if (fontSize == "中") Color(0xFFE8F5E8) else Color(0xFFF5F5F5)
                             ),
                             shape = RoundedCornerShape(8.dp)
                         ) {
@@ -483,7 +522,7 @@ fun SettingsDialog(
                                     .fillMaxWidth()
                                     .padding(12.dp),
                                 style = fontStyle.bodyMedium,
-                                color = if (fontSize == "中") Color(0xFF1976D2) else Color(0xFF666666),
+                                color = if (fontSize == "中") Color(0xFF07C160) else Color(0xFF666666),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -494,7 +533,7 @@ fun SettingsDialog(
                                 .weight(1f)
                                 .clickable { fontSize = "大" },
                             colors = CardDefaults.cardColors(
-                                containerColor = if (fontSize == "大") Color(0xFFE3F2FD) else Color(0xFFF5F5F5)
+                                containerColor = if (fontSize == "大") Color(0xFFE8F5E8) else Color(0xFFF5F5F5)
                             ),
                             shape = RoundedCornerShape(8.dp)
                         ) {
@@ -504,7 +543,7 @@ fun SettingsDialog(
                                     .fillMaxWidth()
                                     .padding(12.dp),
                                 style = fontStyle.bodyLarge,
-                                color = if (fontSize == "大") Color(0xFF1976D2) else Color(0xFF666666),
+                                color = if (fontSize == "大") Color(0xFF07C160) else Color(0xFF666666),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -531,3 +570,4 @@ fun SettingsDialog(
         }
     )
 }
+

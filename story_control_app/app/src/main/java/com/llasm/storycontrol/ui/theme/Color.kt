@@ -11,11 +11,11 @@ val Purple40 = Color(0xFF6650a4)
 val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
 
-// 自定义主题颜色
-val Primary = Color(0xFF2196F3)
+// 自定义主题颜色 - 与主应用保持一致的绿色
+val Primary = Color(0xFF07C160)
 val OnPrimary = Color.White
-val PrimaryContainer = Color(0xFFE3F2FD)
-val OnPrimaryContainer = Color(0xFF0D47A1)
+val PrimaryContainer = Color(0xFFE8F5E8)
+val OnPrimaryContainer = Color(0xFF0D4A0D)
 
 val Secondary = Color(0xFF03DAC6)
 val OnSecondary = Color.Black
@@ -42,11 +42,11 @@ val OnSurfaceVariant = Color(0xFF49454F)
 val Outline = Color(0xFF79747E)
 val OutlineVariant = Color(0xFFCAC4D0)
 
-// 深色主题颜色
-val DarkPrimary = Color(0xFF90CAF9)
-val DarkOnPrimary = Color(0xFF0D47A1)
-val DarkPrimaryContainer = Color(0xFF1565C0)
-val DarkOnPrimaryContainer = Color(0xFFE3F2FD)
+// 深色主题颜色 - 与主应用保持一致的绿色
+val DarkPrimary = Color(0xFF07C160)
+val DarkOnPrimary = Color.White
+val DarkPrimaryContainer = Color(0xFF0D4A0D)
+val DarkOnPrimaryContainer = Color(0xFFE8F5E8)
 
 val DarkSecondary = Color(0xFF4DB6AC)
 val DarkOnSecondary = Color(0xFF004D40)

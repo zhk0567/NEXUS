@@ -5,13 +5,17 @@ package com.llasm.nexusunified.config
  */
 object ServerConfig {
     
-    // ngrok公网服务器
-    const val NGROK_SERVER = "https://nadia-unlettered-fernande.ngrok-free.dev/"
-    const val NGROK_WEBSOCKET = "wss://nadia-unlettered-fernande.ngrok-free.dev"
+    // 本地服务器配置
+    const val LOCAL_SERVER = "http://192.168.50.205:5000/"
+    const val LOCAL_WEBSOCKET = "ws://192.168.50.205:5000"
     
-    // 当前使用的配置 - 使用ngrok
-    const val CURRENT_SERVER = NGROK_SERVER
-    const val CURRENT_WEBSOCKET = NGROK_WEBSOCKET
+    // fgnwct 公网隧道配置
+    const val FGNWCT_SERVER = "http://nexus.free.svipss.top/"
+    const val FGNWCT_WEBSOCKET = "ws://nexus.free.svipss.top"
+    
+    // 当前使用的配置 - 使用本地地址
+    const val CURRENT_SERVER = LOCAL_SERVER
+    const val CURRENT_WEBSOCKET = LOCAL_WEBSOCKET
     
     // Android用户配置
     const val ANDROID_USER_ID = "android_user_default"

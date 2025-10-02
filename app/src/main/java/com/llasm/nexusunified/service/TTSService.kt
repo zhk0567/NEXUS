@@ -10,13 +10,30 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
-class TTSService(private val context: Context) {
+class TTSService private constructor(private val context: Context) {
     
     companion object {
         private const val TAG = "TTSService"
         // 使用真机连接时的电脑IP地址
         private val BACKEND_URL = ServerConfig.CURRENT_SERVER
         private const val TTS_ENDPOINT = "/api/tts"
+        
+        // 超时设置 - 支持长文本
+        private const val CONNECT_TIMEOUT = 10000 // 10秒
+        private const val READ_TIMEOUT = 60000 // 60秒
+        
+        // 缓存设置
+        private const val MAX_CACHE_SIZE = 50
+        private val audioCache = mutableMapOf<String, ByteArray>()
+        
+        @Volatile
+        private var INSTANCE: TTSService? = null
+        
+        fun getInstance(context: Context): TTSService {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: TTSService(context.applicationContext).also { INSTANCE = it }
+            }
+        }
     }
     
     private var mediaPlayer: MediaPlayer? = null
@@ -25,25 +42,37 @@ class TTSService(private val context: Context) {
     private var playbackJob: Job? = null
     
     /**
-     * 从edge-tts API获取音频数据
+     * 从edge-tts API获取音频数据（带缓存和超时优化）
      */
     private suspend fun fetchAudioFromAPI(text: String, voice: String): ByteArray? {
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "开始从edge-tts API获取音频: $text, 音色: $voice")
+                // 检查缓存
+                val cacheKey = "${text}_${voice}"
+                audioCache[cacheKey]?.let { cachedAudio ->
+                    return@withContext cachedAudio
+                }
+                val startTime = System.currentTimeMillis()
                 
                 val url = URL("$BACKEND_URL$TTS_ENDPOINT")
                 val connection = url.openConnection() as HttpURLConnection
                 
+                // 设置超时
+                connection.connectTimeout = CONNECT_TIMEOUT
+                connection.readTimeout = READ_TIMEOUT
+                
                 connection.requestMethod = "POST"
                 connection.setRequestProperty("Content-Type", "application/json")
+                connection.setRequestProperty("Connection", "keep-alive")
                 connection.doOutput = true
                 
-                // 构建请求JSON
+                // 构建请求JSON - 转义特殊字符
+                val escapedText = text.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+                val escapedVoice = voice.replace("\"", "\\\"")
                 val requestBody = """
                     {
-                        "text": "$text",
-                        "voice": "$voice"
+                        "text": "$escapedText",
+                        "voice": "$escapedVoice"
                     }
                 """.trimIndent()
                 
@@ -56,7 +85,12 @@ class TTSService(private val context: Context) {
                 val responseCode = connection.responseCode
                 if (responseCode == HttpURLConnection.HTTP_OK) {
                     val audioData = connection.inputStream.readBytes()
-                    Log.d(TAG, "成功获取音频数据，大小: ${audioData.size} 字节")
+                    
+                    // 缓存音频数据
+                    if (audioData.isNotEmpty()) {
+                        cacheAudio(cacheKey, audioData)
+                    }
+                    
                     audioData
                 } else {
                     Log.e(TAG, "API请求失败，状态码: $responseCode")
@@ -71,6 +105,23 @@ class TTSService(private val context: Context) {
     }
     
     /**
+     * 缓存音频数据
+     */
+    private fun cacheAudio(key: String, audioData: ByteArray) {
+        try {
+            // 限制缓存大小
+            if (audioCache.size >= MAX_CACHE_SIZE) {
+                val firstKey = audioCache.keys.first()
+                audioCache.remove(firstKey)
+            }
+            
+            audioCache[key] = audioData
+        } catch (e: Exception) {
+            Log.w(TAG, "缓存音频失败: ${e.message}")
+        }
+    }
+    
+    /**
      * 保存音频数据到临时文件
      */
     private fun saveAudioToTempFile(audioData: ByteArray): File? {
@@ -79,7 +130,6 @@ class TTSService(private val context: Context) {
             FileOutputStream(tempFile).use { outputStream ->
                 outputStream.write(audioData)
             }
-            Log.d(TAG, "音频文件保存成功: ${tempFile.absolutePath}")
             tempFile
         } catch (e: Exception) {
             Log.e(TAG, "保存音频文件失败", e)
@@ -97,8 +147,14 @@ class TTSService(private val context: Context) {
         onPlayComplete: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
+        // 如果文本过长，截取前500个字符以提高速度
+        val processedText = if (text.length > 500) {
+            text.substring(0, 500) + "..."
+        } else {
+            text
+        }
         try {
-            Log.d(TAG, "开始TTS处理: $text, 音色: $voice")
+            Log.d(TAG, "开始TTS处理: $processedText, 音色: $voice")
             
             withContext(Dispatchers.Main) {
                 if (isPlaying) {
@@ -107,7 +163,7 @@ class TTSService(private val context: Context) {
                 }
                 
                 // 从API获取音频数据
-                val audioData = fetchAudioFromAPI(text, voice)
+                val audioData = fetchAudioFromAPI(processedText, voice)
                 if (audioData == null || audioData.isEmpty()) {
                     Log.e(TAG, "获取音频数据失败")
                     onError("获取音频数据失败，请检查网络连接")
@@ -209,14 +265,13 @@ class TTSService(private val context: Context) {
      */
     fun stopPlayback() {
         try {
+            Log.d(TAG, "停止TTS播放")
             playbackJob?.cancel()
             playbackJob = null
             
-            if (isPlaying) {
-                Log.d(TAG, "停止TTS播放")
-                mediaPlayer?.stop()
-                isPlaying = false
-            }
+            // 强制停止播放，不管isPlaying状态
+            mediaPlayer?.stop()
+            isPlaying = false
             cleanup()
         } catch (e: Exception) {
             Log.e(TAG, "停止播放失败", e)
@@ -256,6 +311,51 @@ class TTSService(private val context: Context) {
      * 检查TTS是否已初始化
      */
     fun isInitialized(): Boolean = isInitialized
+    
+    /**
+     * 预加载常用TTS音频 - 激进策略
+     */
+    fun preloadCommonAudio() {
+        val commonTexts = listOf(
+            "你好！请问有什么可以帮您？",
+            "你好，请问有什么可以帮您？",
+            "好的，我明白了",
+            "请稍等",
+            "正在处理中",
+            "操作完成",
+            "谢谢",
+            "不客气",
+            "再见",
+            "好的",
+            "明白",
+            "了解",
+            "收到",
+            "确认",
+            "完成"
+        )
+        
+        val commonVoices = listOf(
+            "zh-CN-XiaoyiNeural",
+            "zh-CN-XiaoxiaoNeural"
+        )
+        
+        // 在后台预加载
+        CoroutineScope(Dispatchers.IO).launch {
+            commonVoices.forEach { voice ->
+                commonTexts.forEach { text ->
+                    try {
+                        val cacheKey = "${text}_${voice}"
+                        if (!audioCache.containsKey(cacheKey)) {
+                            fetchAudioFromAPI(text, voice)
+                            delay(200) // 减少延迟，加快预加载
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "预加载TTS音频失败: $text, ${e.message}")
+                    }
+                }
+            }
+        }
+    }
     
     /**
      * 获取音色显示名称

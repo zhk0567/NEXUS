@@ -36,11 +36,19 @@
             </intent-filter>
         </activity>
         
-        <!-- 电话模式Activity -->
+        <!-- 电话模式Activity (传统版本) -->
         <activity
             android:name=".VoiceCallActivity"
             android:exported="false"
             android:label="电话模式"
+            android:theme="@style/Theme.NEXUSUnified"
+            android:screenOrientation="portrait" />
+        
+        <!-- 电话模式Activity (Compose版本) -->
+        <activity
+            android:name=".VoiceCallComposeActivity"
+            android:exported="false"
+            android:label="语音通话"
             android:theme="@style/Theme.NEXUSUnified"
             android:screenOrientation="portrait" />
         

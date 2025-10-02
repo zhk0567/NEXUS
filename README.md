@@ -1,4 +1,44 @@
-# NEXUS Unified - 企业级智能语音对话系统
+# NEXUS Unified - 智能语音交互平台
+
+## 🚀 快速启动
+
+### 启动后端服务器
+```bash
+# 使用完整启动脚本（推荐）
+python start_nexus.py
+
+# 或者直接启动
+python nexus_backend.py
+```
+
+### 启动Android应用
+```bash
+cd app
+./gradlew assembleDebug
+./gradlew installDebug
+```
+
+## 🌐 访问地址
+
+- **本地API**: http://localhost:5000/api/health
+- **WebSocket**: ws://localhost:5000
+- **外网访问**: 通过ngrok隧道实现
+
+## ✨ 核心功能
+
+- **🎤 实时语音识别**: 基于Dolphin ASR模型，支持16kHz高质量音频
+- **🤖 智能AI对话**: 集成DeepSeek API，支持流式对话和上下文理解
+- **🔊 多音色语音合成**: 5种中文音色，支持实时播放和预生成
+- **📱 现代化UI**: Jetpack Compose构建，支持主题切换和字体调节
+- **📞 实时语音通话**: 支持连续语音对话，仿微信风格界面
+- **📚 历史记录管理**: 完整的对话历史记录、搜索和导出功能
+- **🗄️ MySQL数据库**: 企业级数据存储，支持用户管理和交互记录
+- **🌐 外网访问**: 通过ngrok实现远程连接和访问
+- **🔧 企业级监控**: 实时服务监控、健康检查和自动恢复
+
+---
+
+**🎉 NEXUS Unified 智能语音交互平台已准备就绪！**
 
 <div align="center">
 
@@ -20,22 +60,23 @@
 
 ## 📱 项目简介
 
-NEXUS Unified 是一个企业级的智能语音对话系统，集成了先进的实时语音识别、AI对话和语音合成功能。系统采用现代化的Jetpack Compose UI框架，提供完整的语音交互解决方案，支持连续对话、历史记录管理、实时监控和自动恢复等企业级特性。
+NEXUS Unified 是一个企业级的智能语音交互平台，集成了先进的实时语音识别、AI对话和语音合成功能。系统采用现代化的Jetpack Compose UI框架，提供完整的语音交互解决方案，支持连续对话、历史记录管理、实时监控和自动恢复等企业级特性。
 
 ### ✨ 核心亮点
 - 🎤 **高精度语音识别**：基于Dolphin模型的实时语音识别，支持16kHz采样率
 - 🤖 **智能AI对话**：集成DeepSeek API的流式对话，支持上下文理解和连续对话
 - 🔊 **多音色语音合成**：使用Edge-TTS的5种中文音色，支持实时播放和预生成
 - 📱 **现代化UI设计**：Jetpack Compose构建的仿微信界面，支持主题切换和字体调节
+- 📞 **实时语音通话**：支持连续语音对话模式，仿微信风格界面
+- 📝 **实时字幕显示**：对话过程中的实时字幕显示和历史记录
 - 📚 **完整数据管理**：支持对话历史记录、搜索、导出和本地存储
 - 🗄️ **MySQL数据库**：企业级数据存储，支持用户管理、交互记录和会话跟踪
 - 🌐 **外网访问支持**：通过ngrok实现外网访问，支持远程连接
 - 🔧 **企业级监控**：实时服务监控、健康检查、自动恢复和性能统计
 - 🛡️ **高可用架构**：支持服务自动恢复、错误处理和超时保护
 - 🎨 **个性化定制**：支持白天/夜间模式、字体大小调节和主题切换
-- 📞 **实时语音通话**：支持连续语音对话模式
-- 📝 **实时字幕显示**：对话过程中的实时字幕显示
 - 🔐 **用户认证系统**：完整的用户注册、登录和会话管理
+- 🎯 **TTS点击效果**：优化的语音播放点击反馈，提供流畅的用户体验
 
 ---
 
@@ -251,10 +292,10 @@ gunicorn -w 4 -b 0.0.0.0:5000 nexus_backend:app
 
 #### **智能录音控制**
 - **长按录音**：仿微信风格，按住开始录音，松开停止
-- **上滑取消**：录音过程中上滑可取消当前录音
+- **直接发送**：识别结果自动发送，无需手动操作
 - **立即停止**：松开按钮后立即停止录音，无延迟
-- **VAD检测**：基于WebRTC VAD的智能语音活动检测
-- **自动发送**：VAD检测到静音后自动发送音频数据
+- **WAV格式**：完整的WAV文件头支持，确保音频格式正确
+- **流式输出**：语音识别结果使用流式输出，与文字输入一致
 
 #### **录音状态指示**
 - **视觉反馈**：录音按钮状态变化和颜色指示
@@ -449,32 +490,36 @@ NEXUS - Final/
 │   ├── src/main/java/com/llasm/nexusunified/
 │   │   ├── 📊 data/                          # 数据模型
 │   │   │   ├── ChatMessage.kt               # 聊天消息
-│   │   │   └── Conversation.kt              # 对话记录
+│   │   │   ├── Conversation.kt              # 对话记录
+│   │   │   └── UserManager.kt               # 用户管理
 │   │   ├── 🔧 service/                      # 核心服务
 │   │   │   ├── ASRService.kt                # 语音识别
 │   │   │   ├── TTSService.kt                # 语音合成
 │   │   │   ├── AIService.kt                 # AI对话
-│   │   │   ├── StreamingAIService.kt        # 流式AI
-│   │   │   └── SimpleTTSService.kt          # 简化TTS服务
+│   │   │   └── StreamingAIService.kt        # 流式AI
 │   │   ├── 🎨 ui/                           # 用户界面
 │   │   │   ├── ChatScreen.kt                # 主聊天界面
-│   │   │   ├── VoiceCallActivity.kt         # 语音通话界面
-│   │   │   ├── HistoryDialog.kt             # 历史记录
+│   │   │   ├── VoiceCallComposeActivity.kt  # 语音通话界面(Compose)
+│   │   │   ├── VoiceCallScreen.kt           # 语音通话界面UI
 │   │   │   ├── SettingsPage.kt              # 设置页面
-│   │   │   ├── SettingsManager.kt           # 设置管理
-│   │   │   └── components/                  # UI组件
+│   │   │   ├── AccountSettingsPage.kt       # 账号设置页面
+│   │   │   ├── VoiceSettingsPage.kt         # 音调设置页面
+│   │   │   ├── ThemeSettingsPage.kt         # 主题设置页面
+│   │   │   ├── AboutPage.kt                 # 关于页面
+│   │   │   └── SettingsManager.kt           # 设置管理
 │   │   ├── 🧠 viewmodel/                    # 视图模型
-│   │   │   ├── ChatViewModel.kt             # 聊天视图模型
-│   │   │   └── VoiceCallViewModel.kt        # 语音通话视图模型
+│   │   │   └── ChatViewModel.kt             # 聊天视图模型
 │   │   ├── 💾 repository/                   # 数据仓库
 │   │   │   └── ConversationRepository.kt    # 对话数据管理
 │   │   ├── 🔄 realtime/                     # 实时通信
 │   │   │   ├── RealtimeAudioManager.kt      # 实时音频管理
 │   │   │   └── RealtimeWebSocketClient.kt   # WebSocket客户端
-│   │   └── 🎨 theme/                        # 主题系统
-│   │       ├── ThemeColors.kt               # 主题颜色
-│   │       ├── FontStyle.kt                 # 字体样式
-│   │       └── NEXUSUnifiedTheme.kt         # 主题应用
+│   │   ├── 🎨 theme/                        # 主题系统
+│   │   │   ├── ThemeColors.kt               # 主题颜色
+│   │   │   ├── FontStyle.kt                 # 字体样式
+│   │   │   └── NEXUSUnifiedTheme.kt         # 主题应用
+│   │   └── 🔧 config/                       # 配置管理
+│   │       └── ServerConfig.kt              # 服务器配置
 │   └── src/main/res/                        # 资源文件
 │       ├── assets/                          # 预生成音频文件
 │       └── values/                          # 主题和样式
@@ -486,14 +531,79 @@ NEXUS - Final/
 ├── 🗄️ database_config.py                    # 数据库配置
 ├── 🗄️ database_manager.py                   # 数据库管理器
 ├── 🗄️ init_database.py                     # 数据库初始化
-├── 🚀 start_nexus_server.py                 # 完整启动脚本
-├── ⚡ quick_start.py                        # 快速启动脚本
-├── 🪟 start_nexus.bat                       # Windows启动脚本
-├── 🌐 ngrok.exe                             # ngrok隧道工具
+├── 🚀 start_nexus.py                        # 完整启动脚本
+├── 🚀 start_local.py                        # 本地启动脚本
+├── 🌐 frpc.ini                              # 内网穿透配置
 ├── 📋 requirements.txt                      # Python依赖
 ├── 📖 README.md                             # 项目说明
-└── 📊 DIRECTORY_CLEANUP_SUMMARY.md          # 目录清理总结
+├── 📖 LOGIN_USERS.md                        # 登录用户说明
+└── 📖 TUNNEL_CONFIG.md                      # 隧道配置说明
 ```
+
+### 🧹 目录清理说明
+
+项目已进行以下清理优化：
+- ✅ 移除Python缓存文件（`__pycache__/`）
+- ✅ 移除测试文件（`test_*.py`）
+- ✅ 移除过时文档（`VOICE_CALL_UI_UPGRADE.md`）
+- ✅ 清理构建产物（`build/`、`app/build/`目录）
+- ✅ 移除日志文件（`nexus_server.log`）
+- ✅ 保持核心功能文件完整
+- ✅ 优化项目结构，提高可维护性
+- ✅ 清理临时文件和缓存
+
+---
+
+## 🧹 项目维护
+
+### 📋 定期清理任务
+
+为了保持项目的整洁和可维护性，建议定期执行以下清理任务：
+
+#### **自动清理脚本**
+```bash
+# 清理Python缓存
+find . -type d -name "__pycache__" -exec rm -rf {} +
+
+# 清理构建产物
+rm -rf build/
+rm -rf app/build/
+rm -rf story_control_app/build/
+
+# 清理日志文件（保留最近7天）
+find . -name "*.log" -mtime +7 -delete
+
+# 清理临时文件
+find . -name "*.tmp" -delete
+find . -name "*.temp" -delete
+```
+
+#### **手动清理检查**
+- ✅ 检查并移除未使用的测试文件
+- ✅ 清理过时的文档和说明文件
+- ✅ 移除重复或冗余的配置文件
+- ✅ 检查并更新依赖版本
+- ✅ 验证所有功能文件完整性
+
+#### **代码质量检查**
+```bash
+# Android代码检查
+./gradlew lint
+
+# Python代码检查
+python -m flake8 . --exclude=__pycache__,build,models
+
+# 检查未使用的导入
+python -m autoflake --check --recursive .
+```
+
+### 🔧 维护最佳实践
+
+1. **定期更新依赖**：保持所有依赖包为最新稳定版本
+2. **清理日志文件**：定期清理日志文件，避免占用过多磁盘空间
+3. **代码审查**：定期审查代码，移除未使用的函数和变量
+4. **文档更新**：保持README和API文档与代码同步
+5. **测试覆盖**：确保所有核心功能都有相应的测试用例
 
 ---
 
@@ -502,9 +612,9 @@ NEXUS - Final/
 ### 📱 主界面操作
 
 #### **开始对话**
-1. **语音对话**：长按麦克风按钮开始录音，松开停止
+1. **语音对话**：长按麦克风按钮开始录音，松开停止并自动发送
 2. **文字对话**：在输入框中输入文字，点击发送
-3. **取消录音**：录音过程中上滑可取消当前录音
+3. **流式输出**：AI回复以流式方式显示，语音和文字输入体验一致
 
 #### **历史记录**
 1. **查看历史**：点击左上角菜单按钮
@@ -1101,6 +1211,47 @@ python nexus_backend.py
 
 ## 📋 更新日志
 
+### 🚀 v3.1.3 (2025-10-03)
+**数据库记录优化**
+- ✨ 修复电话模式数据库记录问题，使用标准API端点
+- ✨ 优化用户输入记录，确保电话模式用户语音正确记录
+- ✨ 移除AI回复分片记录，避免重复记录问题
+- ✨ 修复TTS播放重复记录，只保留播放完成记录
+- 🔧 优化账号设置页面，移除操作按钮，简化界面
+- 🔧 修复用户头像和用户名居中显示问题
+- 🧹 清理项目目录，移除构建产物和缓存文件
+- 📚 更新README文档，反映最新的功能优化
+
+### 🚀 v3.1.2 (2025-10-02)
+**语音识别优化**
+- ✨ 修复按住说话功能，实现完美的按住开始、松开停止录音
+- ✨ 优化语音识别直接发送，识别结果自动发送无需手动操作
+- ✨ 修复WAV音频格式问题，添加完整的WAV文件头支持
+- ✨ 优化音频数据收集，使用正确的ByteArray格式
+- 🔧 简化按住说话逻辑，使用detectTapGestures实现最稳定的按压检测
+- 🔧 优化ASRService音频处理，确保FFmpeg能正确解析音频文件
+- 🧹 清理项目目录，移除Python缓存文件和构建产物
+- 📚 更新README文档，反映最新的功能优化
+
+### 🚀 v3.1.1 (2025-10-02)
+**项目优化**
+- 🧹 清理项目目录，移除测试文件和过时文档
+- 🧹 清理Python缓存文件和构建产物
+- 📚 更新README文档，优化项目结构说明
+- 🔧 简化项目结构，提高代码可维护性
+
+### 🚀 v3.1.0 (2025-10-02)
+**功能优化**
+- ✨ 新增TTS点击效果提示，提供更好的用户交互反馈
+- ✨ 优化账号设置页面，采用更简洁的现代化设计
+- ✨ 移除通用设置项，简化设置页面结构
+- 🔧 优化语音通话界面，使用Jetpack Compose重构
+- 🔧 改进发光环视觉化器，添加荧光式发光效果
+- 🔧 优化UI动画效果，提供更流畅的用户体验
+- 🐛 修复LaunchedEffect在非Composable函数中调用的错误
+- 🐛 修复编译错误和运行时异常
+- 📚 更新README文档，反映项目最新状态
+
 ### 🚀 v3.0.0 (2025-09-29)
 **重大更新**
 - ✨ 新增MySQL数据库支持，完整的数据存储和管理
@@ -1156,7 +1307,8 @@ python nexus_backend.py
 
 ### 🎯 核心技术优势
 - **高精度语音识别**：基于Dolphin模型，识别准确率95%+
-- **智能对话引擎**：集成DeepSeek API，支持上下文理解
+- **完美按住说话**：仿微信风格，按住开始、松开停止，直接发送
+- **智能对话引擎**：集成DeepSeek API，支持上下文理解和流式输出
 - **多音色合成**：5种中文音色，自然流畅的语音输出
 - **实时处理**：低延迟的实时语音交互体验
 - **企业级架构**：高可用、可扩展的微服务架构
@@ -1171,8 +1323,10 @@ python nexus_backend.py
 
 ### 📊 性能指标
 - **语音识别延迟**：< 2秒（Dolphin ASR）
+- **按住说话响应**：< 100ms（即时响应）
 - **AI对话响应**：< 3秒（DeepSeek API）
 - **语音合成延迟**：< 1秒（Edge-TTS）
+- **WAV格式支持**：100%兼容（完整文件头）
 - **数据库响应**：< 100ms（MySQL优化）
 - **外网访问延迟**：< 500ms（ngrok隧道）
 - **系统可用性**：99.9%+

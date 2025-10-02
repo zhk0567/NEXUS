@@ -9,7 +9,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
-from database_config import DATABASE_CONFIG, CREATE_TABLES_SQL, INIT_DATABASE_SQL, DEFAULT_ADMIN
+from database_config import DATABASE_CONFIG, CREATE_TABLES_SQL, INIT_DATABASE_SQL, DEFAULT_ADMIN, TEST_USERS
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,9 @@ class DatabaseManager:
                 # 创建默认管理员用户
                 self.create_default_admin()
                 
+                # 创建测试用户
+                self.create_test_users()
+                
         except Exception as e:
             logger.error(f"❌ 数据库初始化失败: {e}")
             raise
@@ -85,6 +88,30 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"❌ 创建默认管理员用户失败: {e}")
     
+    def create_test_users(self):
+        """创建测试用户"""
+        try:
+            for user_data in TEST_USERS:
+                # 检查用户是否已存在
+                if self.get_user_by_username(user_data['username']):
+                    logger.info(f"ℹ️ 测试用户 {user_data['username']} 已存在")
+                    continue
+                
+                # 创建用户
+                password_hash = self.hash_password(user_data['password'])
+                self.create_user(
+                    user_id=user_data['user_id'],
+                    username=user_data['username'],
+                    password_hash=password_hash,
+                    is_active=user_data['is_active']
+                )
+                logger.info(f"✅ 测试用户创建成功: {user_data['username']}")
+            
+            logger.info("✅ 所有测试用户创建完成")
+            
+        except Exception as e:
+            logger.error(f"❌ 创建测试用户失败: {e}")
+    
     def hash_password(self, password: str) -> str:
         """密码哈希"""
         return hashlib.sha256(password.encode()).hexdigest()
@@ -93,7 +120,32 @@ class DatabaseManager:
         """验证密码"""
         return self.hash_password(password) == password_hash
     
-    def create_user(self, user_id: str, username: str, password_hash: str, is_active: bool = True) -> bool:
+    def user_exists(self, user_id: str) -> bool:
+        """检查用户是否存在"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # 检查连接是否有效
+                if not self.connection or not self.connection.open:
+                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
+                
+                with self.connection.cursor() as cursor:
+                    sql = "SELECT COUNT(*) FROM users WHERE user_id = %s"
+                    cursor.execute(sql, (user_id,))
+                    result = cursor.fetchone()
+                    return result[0] > 0
+                    
+            except Exception as e:
+                logger.error(f"❌ 检查用户存在失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    self.reconnect()
+                    time.sleep(1)
+                else:
+                    return False
+        return False
+    
+    def create_user(self, user_id: str, username: str, password: str, email: str = None, is_active: bool = True) -> bool:
         """创建用户"""
         max_retries = 3
         for attempt in range(max_retries):
@@ -104,6 +156,9 @@ class DatabaseManager:
                     self.reconnect()
                 
                 with self.connection.cursor() as cursor:
+                    # 对密码进行哈希处理
+                    password_hash = self.hash_password(password)
+                    
                     sql = """
                     INSERT INTO users (user_id, username, password_hash, is_active)
                     VALUES (%s, %s, %s, %s)
@@ -216,7 +271,7 @@ class DatabaseManager:
     def log_interaction(self, user_id: str, interaction_type: str, content: str, 
                        response: str = None, session_id: str = None, 
                        duration_seconds: int = None, success: bool = True, 
-                       error_message: str = None) -> bool:
+                       error_message: str = None, tts_play_count: int = 0) -> bool:
         """记录交互"""
         max_retries = 3
         for attempt in range(max_retries):
@@ -230,11 +285,11 @@ class DatabaseManager:
                     sql = """
                     INSERT INTO interactions 
                     (user_id, interaction_type, content, response, session_id, 
-                     duration_seconds, success, error_message)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     duration_seconds, success, error_message, tts_play_count)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """
                     cursor.execute(sql, (user_id, interaction_type, content, response, 
-                                       session_id, duration_seconds, success, error_message))
+                                       session_id, duration_seconds, success, error_message, tts_play_count))
                     self.connection.commit()
                     logger.info(f"✅ 交互记录成功: {interaction_type}")
                     return True
@@ -350,6 +405,100 @@ class DatabaseManager:
             logger.error(f"❌ 获取活跃用户失败: {e}")
             return []
     
+    def increment_tts_play_count(self, interaction_id: int) -> bool:
+        """增加TTS播放次数"""
+        try:
+            with self.connection.cursor() as cursor:
+                sql = """
+                UPDATE interactions 
+                SET tts_play_count = tts_play_count + 1,
+                    last_tts_play_time = NOW()
+                WHERE id = %s
+                """
+                cursor.execute(sql, (interaction_id,))
+                self.connection.commit()
+                logger.info(f"✅ TTS播放次数增加成功: interaction_id={interaction_id}")
+                return True
+        except Exception as e:
+            logger.error(f"❌ 增加TTS播放次数失败: {e}")
+            return False
+    
+    def get_tts_play_count(self, interaction_id: int) -> int:
+        """获取TTS播放次数"""
+        try:
+            with self.connection.cursor() as cursor:
+                sql = "SELECT tts_play_count FROM interactions WHERE id = %s"
+                cursor.execute(sql, (interaction_id,))
+                result = cursor.fetchone()
+                return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"❌ 获取TTS播放次数失败: {e}")
+            return 0
+    
+    def get_tts_stats(self, user_id: str = None, days: int = 30) -> Dict:
+        """获取TTS播放统计"""
+        try:
+            with self.connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                where_clause = "WHERE timestamp >= DATE_SUB(NOW(), INTERVAL %s DAY)"
+                params = [days]
+                
+                if user_id:
+                    where_clause += " AND user_id = %s"
+                    params.append(user_id)
+                
+                sql = f"""
+                SELECT 
+                    COUNT(*) as total_interactions,
+                    SUM(tts_play_count) as total_tts_plays,
+                    AVG(tts_play_count) as avg_tts_plays_per_interaction,
+                    MAX(tts_play_count) as max_tts_plays,
+                    COUNT(CASE WHEN tts_play_count > 0 THEN 1 END) as interactions_with_tts,
+                    COUNT(CASE WHEN tts_play_count = 0 THEN 1 END) as interactions_without_tts
+                FROM interactions 
+                {where_clause}
+                """
+                cursor.execute(sql, params)
+                result = cursor.fetchone()
+                
+                # 计算TTS播放率
+                if result['total_interactions'] > 0:
+                    result['tts_play_rate'] = result['interactions_with_tts'] / result['total_interactions']
+                else:
+                    result['tts_play_rate'] = 0
+                
+                return result
+        except Exception as e:
+            logger.error(f"❌ 获取TTS统计失败: {e}")
+            return {}
+    
+    def get_most_played_interactions(self, user_id: str = None, limit: int = 10) -> List[Dict]:
+        """获取播放次数最多的交互记录"""
+        try:
+            with self.connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                where_clause = "WHERE tts_play_count > 0"
+                params = []
+                
+                if user_id:
+                    where_clause += " AND user_id = %s"
+                    params.append(user_id)
+                
+                params.append(limit)
+                
+                sql = f"""
+                SELECT 
+                    id, user_id, interaction_type, content, response,
+                    tts_play_count, last_tts_play_time, timestamp
+                FROM interactions 
+                {where_clause}
+                ORDER BY tts_play_count DESC, last_tts_play_time DESC
+                LIMIT %s
+                """
+                cursor.execute(sql, params)
+                return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"❌ 获取最常播放交互失败: {e}")
+            return []
+    
     def cleanup_old_data(self, days: int = 90):
         """清理旧数据"""
         try:
@@ -378,6 +527,74 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"❌ 清理旧数据失败: {e}")
     
+    def query_interactions(self, interaction_type: str = None, user_id: str = None, limit: int = 10):
+        """查询交互记录"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if not self.connection or not self.connection.open:
+                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
+
+                with self.connection.cursor() as cursor:
+                    # 构建查询条件
+                    conditions = []
+                    params = []
+                    
+                    if interaction_type:
+                        conditions.append("interaction_type = %s")
+                        params.append(interaction_type)
+                    
+                    if user_id:
+                        conditions.append("user_id = %s")
+                        params.append(user_id)
+                    
+                    where_clause = ""
+                    if conditions:
+                        where_clause = "WHERE " + " AND ".join(conditions)
+                    
+                    sql = f"""
+                    SELECT id, user_id, interaction_type, content, response, 
+                           timestamp, session_id, duration_seconds, success, error_message
+                    FROM interactions 
+                    {where_clause}
+                    ORDER BY timestamp DESC 
+                    LIMIT %s
+                    """
+                    params.append(limit)
+                    
+                    cursor.execute(sql, params)
+                    results = cursor.fetchall()
+                    
+                    # 转换为字典列表
+                    records = []
+                    for row in results:
+                        record = {
+                            'id': row[0],
+                            'user_id': row[1],
+                            'interaction_type': row[2],
+                            'content': row[3],
+                            'response': row[4],
+                            'timestamp': row[5].isoformat() if row[5] else None,
+                            'session_id': row[6],
+                            'duration_seconds': row[7],
+                            'success': bool(row[8]),
+                            'error_message': row[9]
+                        }
+                        records.append(record)
+                    
+                    logger.info(f"✅ 查询交互记录成功: 找到 {len(records)} 条记录")
+                    return records
+
+            except Exception as e:
+                logger.error(f"❌ 查询交互记录失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    self.reconnect()
+                    time.sleep(1)
+                else:
+                    return []
+        return []
+
     def close(self):
         """关闭数据库连接"""
         if self.connection:

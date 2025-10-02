@@ -27,7 +27,8 @@ class RealtimeWebSocketClient(
     private val onDisconnected: () -> Unit,
     private val onResponseComplete: () -> Unit = {},  // 添加响应完成回调
     private val onTranscriptionResult: (String) -> Unit = {},  // 添加语音识别结果回调
-    private val onTextOutput: (String) -> Unit = {}  // 添加豆包文字输出回调
+    private val onTextOutput: (String) -> Unit = {},  // 添加豆包文字输出回调
+    private var voiceId: String = "zh_female_vv_jupiter_bigtts"  // 添加音色ID参数
 ) {
     companion object {
         private const val TAG = "RealtimeWebSocketClient"
@@ -41,6 +42,9 @@ class RealtimeWebSocketClient(
         
         // 保活配置
         private const val KEEPALIVE_INTERVAL_MS = 5000L  // 5秒保活间隔
+        
+        // 语音识别超时配置
+        private const val ASR_TIMEOUT_MS = 5000L  // 5秒语音识别超时
         
         // WebSocket连接配置
         private const val BASE_URL = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue"
@@ -93,6 +97,10 @@ class RealtimeWebSocketClient(
     private var lastAudioData: ByteArray? = null
     private var hasSentEndSignal = false
     
+    // 语音识别超时检测
+    private var asrStartTime = 0L
+    private var asrTimeoutJob: Job? = null
+    
     // 协程作用域
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
@@ -143,7 +151,7 @@ class RealtimeWebSocketClient(
                         onConnected()
                         onMessage("📤 发送StartConnection请求...")
                         startConnection()
-                        startKeepalive()  // 启动保活机制
+                        // 保活机制在startSession后启动
                     }
                 }
                 
@@ -170,6 +178,7 @@ class RealtimeWebSocketClient(
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     Log.d(TAG, "WebSocket连接已关闭: $code - $reason")
                     isConnected = false
+                    stopAsrTimeoutDetection()  // 停止超时检测
                     scope.launch(Dispatchers.Main) {
                         onDisconnected()
                     }
@@ -179,6 +188,7 @@ class RealtimeWebSocketClient(
                     Log.e(TAG, "WebSocket连接失败", t)
                     isConnected = false
                     keepaliveJob?.cancel()  // 停止保活
+                    stopAsrTimeoutDetection()  // 停止超时检测
                     
                     scope.launch(Dispatchers.Main) {
                         onMessage("❌ WebSocket连接失败: ${t.javaClass.simpleName}")
@@ -280,11 +290,13 @@ class RealtimeWebSocketClient(
             val sessionConfig = JSONObject().apply {
                 put("asr", JSONObject().apply {
                     put("extra", JSONObject().apply {
-                        put("end_smooth_window_ms", 1500)
+                        put("end_smooth_window_ms", 500)  // 减少平滑窗口时间
+                        put("eos_silence_timeout", 1000)  // 设置1秒静音超时
+                        put("vad_backtrack_silence_time_ms", 200)  // 减少回溯时间
                     })
                 })
                 put("tts", JSONObject().apply {
-                    put("speaker", "zh_female_vv_jupiter_bigtts")
+                    put("speaker", voiceId)
                     put("audio_config", JSONObject().apply {
                         put("channel", 1)
                         put("format", "pcm_s16le")  // 使用16位格式，符合官方文档
@@ -403,7 +415,7 @@ class RealtimeWebSocketClient(
     /**
      * 发送音频数据
      */
-    suspend fun sendAudioData(audioData: ByteArray, showLog: Boolean = true) {
+    suspend fun sendAudioData(audioData: ByteArray, showLog: Boolean = true, updateLastSendTime: Boolean = true) {
         if (!isConnected) {
             Log.w(TAG, "WebSocket未连接，跳过音频数据发送")
             onMessage("❌ WebSocket未连接，无法发送音频")
@@ -434,7 +446,9 @@ class RealtimeWebSocketClient(
             }.toByteArray()
             
             webSocket?.send(ByteString.of(*request))
-            lastAudioSendTime = System.currentTimeMillis()  // 更新最后发送时间
+            if (updateLastSendTime) {
+                lastAudioSendTime = System.currentTimeMillis()  // 更新最后发送时间
+            }
             
             if (showLog) {
                 Log.d(TAG, "发送音频块，原始大小: ${audioData.size} 字节，压缩后: ${compressedAudio.size} 字节")
@@ -462,8 +476,31 @@ class RealtimeWebSocketClient(
     }
     
     /**
-     * 启动音频超时检测
+     * 启动语音识别超时检测
      */
+    private fun startAsrTimeoutDetection() {
+        asrTimeoutJob?.cancel()
+        asrStartTime = System.currentTimeMillis()
+        
+        asrTimeoutJob = scope.launch {
+            delay(ASR_TIMEOUT_MS)
+            
+            // 检查是否还在等待语音识别结果
+            if (!hasSentEndSignal && System.currentTimeMillis() - asrStartTime >= ASR_TIMEOUT_MS) {
+                Log.w(TAG, "语音识别超时，强制发送结束信号")
+                sendEndSignal()
+                onMessage("⏰ 语音识别超时，强制结束")
+            }
+        }
+    }
+    
+    /**
+     * 停止语音识别超时检测
+     */
+    private fun stopAsrTimeoutDetection() {
+        asrTimeoutJob?.cancel()
+        asrTimeoutJob = null
+    }
     
     /**
      * 发送静音音频块作为结束标记
@@ -477,6 +514,9 @@ class RealtimeWebSocketClient(
         try {
             val silenceChunk = ByteArray(3200) // 16000Hz * 0.2秒 = 3200字节
             // 静音数据已经是全零，不需要额外处理
+            
+            // 启动语音识别超时检测
+            startAsrTimeoutDetection()
             
             // 发送5个静音块作为结束标记（按照Python代码）
             repeat(5) {
@@ -502,6 +542,9 @@ class RealtimeWebSocketClient(
             Log.d(TAG, "结束信号已发送，跳过重复发送")
             return
         }
+        
+        // 停止超时检测
+        stopAsrTimeoutDetection()
         
         try {
             // 根据火山引擎文档，结束信号应该使用特定的payload格式
@@ -541,18 +584,30 @@ class RealtimeWebSocketClient(
     private fun startKeepalive() {
         keepaliveJob?.cancel()
         keepaliveJob = scope.launch {
+            Log.d(TAG, "🔇 启动保活机制，间隔: ${KEEPALIVE_INTERVAL_MS}ms")
             while (isConnected) {
                 try {
                     val currentTime = System.currentTimeMillis()
-                    if (currentTime - lastAudioSendTime > KEEPALIVE_INTERVAL_MS) {
+                    val timeSinceLastAudio = currentTime - lastAudioSendTime
+                    
+                    if (timeSinceLastAudio > KEEPALIVE_INTERVAL_MS) {
+                        Log.d(TAG, "🔇 发送保活音频，距离上次音频: ${timeSinceLastAudio}ms")
                         sendKeepaliveAudio()
                     }
-                    delay(1000) // 每秒检查一次
+                    
+                    // 动态调整检查间隔
+                    val checkInterval = if (timeSinceLastAudio > KEEPALIVE_INTERVAL_MS) {
+                        1000L // 需要保活时，每秒检查一次
+                    } else {
+                        maxOf(1000L, KEEPALIVE_INTERVAL_MS - timeSinceLastAudio) // 根据剩余时间调整
+                    }
+                    delay(checkInterval)
                 } catch (e: Exception) {
                     Log.e(TAG, "保活检查失败", e)
                     break
                 }
             }
+            Log.d(TAG, "🔇 保活机制已停止")
         }
     }
     
@@ -564,8 +619,8 @@ class RealtimeWebSocketClient(
         
         try {
             val silenceChunk = ByteArray(3200) // 16000Hz * 0.2秒 = 3200字节
-            sendAudioData(silenceChunk, showLog = false) // 保活静音数据不显示日志
-            Log.d(TAG, "🔇 发送静音音频保活")
+            sendAudioData(silenceChunk, showLog = false, updateLastSendTime = false) // 保活静音数据不显示日志，不更新发送时间
+            // 保活机制静默运行，不输出日志
         } catch (e: Exception) {
             Log.e(TAG, "发送保活音频失败", e)
         }
@@ -681,16 +736,13 @@ class RealtimeWebSocketClient(
                             Log.d(TAG, "AI开始响应，清空音频缓存")
                             onMessage("🤖 AI开始响应...")
                             
-                            // 简化逻辑：AI开始响应后立即发送结束信号
+                            // 立即发送结束信号，强制停止语音识别
                             if (!hasSentEndSignal) {
-                                GlobalScope.launch {
-                                    delay(2000) // 等待2秒确保语音识别完成
-                                    if (!hasSentEndSignal) {
-                                        Log.d(TAG, "AI开始响应，发送结束信号")
-                                        sendEndSignal()
-                                        onMessage("⏳ 等待AI回复...")
-                                    }
+                                Log.d(TAG, "AI开始响应，立即发送结束信号")
+                                scope.launch {
+                                    sendEndSignal()
                                 }
+                                onMessage("⏳ 等待AI回复...")
                             }
                         }
                         200 -> {
@@ -771,7 +823,7 @@ class RealtimeWebSocketClient(
                                                 // 发送结束信号
                                                 if (!hasSentEndSignal) {
                                                     GlobalScope.launch {
-                                                        delay(1000) // 等待1秒确保结果完整
+                                                        delay(200) // 等待0.2秒确保结果完整
                                                         if (!hasSentEndSignal) {
                                                             Log.d(TAG, "发送结束信号")
                                                             sendEndSignal()
@@ -1060,4 +1112,22 @@ class RealtimeWebSocketClient(
      * 检查连接状态
      */
     fun isConnected(): Boolean = isConnected
+    
+    /**
+     * 更新音色ID
+     */
+    suspend fun updateVoiceId(newVoiceId: String) {
+        voiceId = newVoiceId
+        Log.d(TAG, "音色ID已更新: $voiceId")
+        
+        // 如果已连接，重新启动会话以应用新音色
+        if (isConnected) {
+            try {
+                startSession()
+                Log.d(TAG, "会话已重新启动，应用新音色")
+            } catch (e: Exception) {
+                Log.e(TAG, "重新启动会话失败", e)
+            }
+        }
+    }
 }

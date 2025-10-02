@@ -9,6 +9,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import com.llasm.nexusunified.network.StreamingResponse
 import com.llasm.nexusunified.config.ServerConfig
+import com.llasm.nexusunified.data.UserManager
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -60,11 +61,15 @@ class StreamingAIService(private val context: Context) {
                     historyArray.put(historyItem)
                 }
                 
+                // 获取真实的用户ID和会话ID
+                val userId = UserManager.getUserId() ?: ServerConfig.ANDROID_USER_ID
+                val sessionId = UserManager.getSessionId() ?: ServerConfig.ANDROID_SESSION_ID
+                
                 val requestBody = JSONObject().apply {
                     put("message", message)
                     put("conversation_history", historyArray)
-                    put("user_id", ServerConfig.ANDROID_USER_ID)
-                    put("session_id", ServerConfig.ANDROID_SESSION_ID)
+                    put("user_id", userId)
+                    put("session_id", sessionId)
                 }.toString().toRequestBody("application/json".toMediaType())
                 
                 val request = Request.Builder()

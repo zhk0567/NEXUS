@@ -8,7 +8,6 @@ import com.llasm.nexusunified.data.ChatMessage
 import com.llasm.nexusunified.realtime.RealtimeWebSocketClient
 import com.llasm.nexusunified.realtime.RealtimeAudioManager
 import com.llasm.nexusunified.service.AIService
-import com.llasm.nexusunified.network.MonitorClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,7 +68,6 @@ class VoiceCallViewModel : ViewModel() {
     private var aiService: AIService? = null
     private var audioManager: RealtimeAudioManager? = null
     private var webSocketClient: RealtimeWebSocketClient? = null
-    private var monitorClient: MonitorClient? = null
     private var context: Context? = null
     
     // 录音状态
@@ -91,9 +89,6 @@ class VoiceCallViewModel : ViewModel() {
             aiService = AIService(context)
             Log.d(TAG, "AI服务初始化成功")
             
-            // 初始化监控客户端
-            monitorClient = MonitorClient(context)
-            Log.d(TAG, "监控客户端初始化成功")
             
             // 初始化音频管理器
             audioManager = RealtimeAudioManager(
@@ -112,18 +107,6 @@ class VoiceCallViewModel : ViewModel() {
             Log.d(TAG, "音频管理器初始化成功")
             
             // 发送初始状态
-            monitorClient?.sendAppStatus(
-                appVersion = "1.0.0",
-                isActive = true,
-                currentScreen = "VoiceCall",
-                lastActivity = "应用启动",
-                memoryUsage = 0.0,
-                cpuUsage = 0.0,
-                networkStatus = "unknown",
-                apiCallsCount = 0,
-                errorCount = 0
-            )
-            Log.d(TAG, "初始状态已发送到监控后端")
             
         } catch (e: Exception) {
             Log.e(TAG, "服务初始化失败", e)

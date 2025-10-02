@@ -23,6 +23,40 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.llasm.nexusunified.ui.ChatScreen
 import com.llasm.nexusunified.ui.theme.NEXUSUnifiedTheme
 import com.llasm.nexusunified.viewmodel.ChatViewModel
+import com.llasm.nexusunified.data.UserManager
+import com.llasm.nexusunified.data.UserData
+import com.llasm.nexusunified.config.ServerConfig
+import com.llasm.nexusunified.ui.SettingsManager
+import androidx.compose.material3.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.OutputStreamWriter
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import org.json.JSONObject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 // import com.llasm.nexusunified.controller.SyncController // 暂时禁用同步功能
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -45,6 +79,9 @@ class MainActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // 初始化UserManager
+        UserManager.init(this)
         
         // 暂时禁用同步功能，避免启动时崩溃
         // syncController = SyncController(this)
@@ -113,6 +150,10 @@ fun MainScreen(
     val chatViewModel: ChatViewModel = viewModel()
     val context = LocalContext.current
     
+    // 检查登录状态
+    val isLoggedIn = UserManager.isLoggedIn()
+    var showLoginDialog by remember { mutableStateOf(!isLoggedIn) }
+    
     // 通知MainActivity chatViewModel已创建
     LaunchedEffect(chatViewModel) {
         onViewModelCreated(chatViewModel)
@@ -125,13 +166,217 @@ fun MainScreen(
         }
     }
     
-    ChatScreen(
-        onVoiceCallClick = { 
-            // 启动电话模式Activity
-            val intent = Intent(context, VoiceCallActivity::class.java)
-            context.startActivity(intent)
+    // 如果未登录，显示登录对话框
+    if (showLoginDialog) {
+        LoginDialog(
+            onDismiss = { 
+                // 不允许关闭登录对话框，必须登录才能使用
+                // 这里不执行任何操作，保持对话框显示
+            },
+            onLoginSuccess = {
+                showLoginDialog = false
+            }
+        )
+    } else {
+        // 已登录，显示主界面
+        ChatScreen(
+            onVoiceCallClick = { 
+                // 启动电话模式Activity (Compose版本)
+                val intent = Intent(context, VoiceCallComposeActivity::class.java)
+                context.startActivity(intent)
+            },
+            viewModel = chatViewModel,
+            onShowLoginDialog = { showLoginDialog = true }
+        )
+    }
+}
+
+// 登录API调用函数
+fun loginUser(username: String, password: String, callback: (Boolean, String?) -> Unit) {
+    Thread {
+        try {
+            val url = URL(ServerConfig.getApiUrl(ServerConfig.Endpoints.AUTH_LOGIN))
+            val connection = url.openConnection() as HttpURLConnection
+            
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.doOutput = true
+            
+            val jsonObject = JSONObject()
+            jsonObject.put("username", username)
+            jsonObject.put("password", password)
+            jsonObject.put("device_info", "Android")
+            
+            val outputStream = connection.outputStream
+            val writer = OutputStreamWriter(outputStream)
+            writer.write(jsonObject.toString())
+            writer.flush()
+            writer.close()
+            
+            val responseCode = connection.responseCode
+            val inputStream = if (responseCode == HttpURLConnection.HTTP_OK) {
+                connection.inputStream
+            } else {
+                connection.errorStream
+            }
+            
+            val reader = BufferedReader(InputStreamReader(inputStream))
+            val response = StringBuilder()
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                response.append(line)
+            }
+            reader.close()
+            
+            val jsonResponse = JSONObject(response.toString())
+            
+            if (responseCode == HttpURLConnection.HTTP_OK && jsonResponse.getBoolean("success")) {
+                // 登录成功，保存用户信息
+                val user = jsonResponse.getJSONObject("user")
+                val sessionId = jsonResponse.getString("session_id")
+                
+                val userData = UserData(
+                    userId = user.getString("user_id"),
+                    username = user.getString("username"),
+                    sessionId = sessionId,
+                    createdAt = user.optString("created_at", null),
+                    lastLoginAt = user.optString("last_login_at", null)
+                )
+                
+                // 保存用户信息到SharedPreferences
+                UserManager.saveLoginData(userData)
+                
+                callback(true, null)
+            } else {
+                val errorMessage = jsonResponse.optString("error", "登录失败")
+                callback(false, errorMessage)
+            }
+            
+        } catch (e: Exception) {
+            callback(false, "网络连接失败: ${e.message}")
+        }
+    }.start()
+}
+
+@Composable
+fun LoginDialog(
+    onDismiss: () -> Unit,
+    onLoginSuccess: () -> Unit
+) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var isPasswordVisible by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
+    var showSuccessMessage by remember { mutableStateOf(false) }
+    
+    // 获取当前字体样式
+    val fontStyle = SettingsManager.getFontStyle()
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "用户登录",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
         },
-        viewModel = chatViewModel
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // 用户名输入框
+                TextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("用户名") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
+                )
+                
+                // 密码输入框
+                TextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("密码") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                            Icon(
+                                imageVector = if (isPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = if (isPasswordVisible) "隐藏密码" else "显示密码"
+                            )
+                        }
+                    }
+                )
+                
+                // 成功信息显示
+                if (showSuccessMessage) {
+                    Text(
+                        text = "登录成功！",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                
+                // 错误信息显示
+                if (errorMessage.isNotEmpty()) {
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (username.isBlank() || password.isBlank()) {
+                        errorMessage = "请输入账号和密码"
+                        return@Button
+                    }
+                    
+                    isLoading = true
+                    errorMessage = ""
+                    
+                    // 调用后端登录API
+                    loginUser(username, password) { success, message ->
+                        isLoading = false
+                        if (success) {
+                            showSuccessMessage = true
+                            // 延迟关闭对话框，让用户看到成功提示
+                            CoroutineScope(Dispatchers.Main).launch {
+                                delay(1500)
+                                onLoginSuccess()
+                            }
+                        } else {
+                            errorMessage = message ?: "登录失败"
+                        }
+                    }
+                },
+                enabled = !isLoading && username.isNotBlank() && password.isNotBlank()
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("登录")
+                }
+            }
+        },
+        dismissButton = {
+            // 不显示取消按钮，强制用户登录
+        }
     )
 }
 

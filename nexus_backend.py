@@ -23,7 +23,14 @@ from collections import defaultdict, deque
 from database_manager import db_manager
 
 # 配置日志
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('nexus_server.log', encoding='utf-8')
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # 服务监控和健康检查类
@@ -181,18 +188,22 @@ class ServiceMonitor:
 # 创建全局监控实例
 monitor = ServiceMonitor()
 
-# TTS配置管理 - 专注edge-tts稳定性
+# TTS配置管理 - 激进性能优化
 TTS_CONFIG = {
-    'max_retries': 5,  # 增加重试次数
-    'timeout_total': 60,  # 增加总超时时间
-    'timeout_connect': 30,  # 增加连接超时
-    'retry_delay': 2,  # 增加重试延迟
+    'max_retries': 2,  # 进一步减少重试次数
+    'timeout_total': 60,  # 增加总超时时间到60秒以支持长文本
+    'timeout_connect': 10,  # 增加连接超时到10秒
+    'retry_delay': 0.5,  # 进一步减少重试延迟
     'max_consecutive_failures': 3,  # 连续失败阈值
-    'recovery_delay': 10,  # 恢复延迟
-    'concurrent_limit': 1,  # 限制并发为1，避免冲突
+    'recovery_delay': 3,  # 减少恢复延迟
+    'concurrent_limit': 3,  # 增加并发限制到3
     'cache_enabled': True,  # 启用缓存
     'health_check_interval': 30,  # 健康检查间隔
-    'use_edge_tts_only': True  # 强制只使用edge-tts
+    'use_edge_tts_only': True,  # 强制只使用edge-tts
+    'text_length_limit': 1000,  # 增加文本长度限制
+    'enable_compression': True,  # 启用压缩传输
+    'fast_mode': True,  # 启用快速模式
+    'chunk_size': 1024  # 减少块大小以提高响应速度
 }
 
 # TTS缓存和并发控制
@@ -497,9 +508,10 @@ async def generate_tts_audio_async(text: str, voice: str = "zh-CN-XiaoxiaoNeural
             processed_text = "测试"
         
         # 限制文本长度，避免过长请求
-        if len(processed_text) > 200:
-            processed_text = processed_text[:200]
-            logger.info(f"🎵 文本过长，截取前200字符")
+        text_limit = TTS_CONFIG.get('text_length_limit', 500)
+        if len(processed_text) > text_limit:
+            processed_text = processed_text[:text_limit]
+            logger.info(f"🎵 文本过长，截取前{text_limit}字符")
         
         # 验证和标准化音色
         valid_voices = [
@@ -528,15 +540,15 @@ async def generate_tts_audio_async(text: str, voice: str = "zh-CN-XiaoxiaoNeural
                 
                 # 增加重试延迟，避免edge-tts服务限制
                 if retry > 0:
-                    delay = TTS_CONFIG['retry_delay'] * (retry + 1) + random.uniform(1, 3)
+                    delay = TTS_CONFIG['retry_delay'] + random.uniform(0, 1)
                     logger.info(f"🎵 等待 {delay:.1f} 秒后重试edge-tts...")
                     await asyncio.sleep(delay)
                 
-                # 直接使用edge-tts
+                # 直接使用edge-tts - 优化参数以提高速度
                 communicate = edge_tts.Communicate(
                     processed_text, 
                     voice,
-                    rate="+0%",
+                    rate="+10%",  # 稍微加快语速
                     pitch="+0Hz",
                     volume="+0%"
                 )
@@ -555,7 +567,7 @@ async def generate_tts_audio_async(text: str, voice: str = "zh-CN-XiaoxiaoNeural
                     
                     if chunk_type == "audio" and chunk_data:
                         audio_data += chunk_data
-                    chunk_count += 1
+                        chunk_count += 1
                     if chunk_count % 5 == 0:  # 每5块打印一次
                         logger.info(f"🎵 已处理 {chunk_count} 块，当前大小: {len(audio_data)} 字节")
                 
@@ -988,6 +1000,83 @@ def clear_tts_cache():
         logger.error(f"❌ 清理TTS缓存失败: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/doubao/voice_conversion', methods=['POST'])
+def doubao_voice_conversion():
+    """豆包端到端音色转换API"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        voice_id = data.get('voice_id')
+        text = data.get('text')
+        format_type = data.get('format', 'wav')
+        sample_rate = data.get('sample_rate', 16000)
+        
+        if not voice_id or not text:
+            return jsonify({'error': 'voice_id and text are required'}), 400
+        
+        logger.info(f"🎵 豆包音色转换请求: voice_id={voice_id}, text={text[:50]}...")
+        
+        # 调用豆包端到端音色转换服务
+        audio_data = call_doubao_voice_conversion(voice_id, text, format_type, sample_rate)
+        
+        if audio_data:
+            logger.info(f"✅ 豆包音色转换成功: {len(audio_data)} bytes")
+            return send_file(
+                io.BytesIO(audio_data),
+                mimetype='audio/wav',
+                as_attachment=False,
+                download_name=f'voice_preview_{voice_id}.wav'
+            )
+        else:
+            logger.error(f"❌ 豆包音色转换失败")
+            return jsonify({'error': 'Voice conversion failed'}), 500
+            
+    except Exception as e:
+        logger.error(f"❌ 豆包音色转换异常: {e}")
+        return jsonify({'error': str(e)}), 500
+
+def call_doubao_voice_conversion(voice_id, text, format_type='wav', sample_rate=16000):
+    """调用豆包端到端音色转换服务"""
+    try:
+        # 这里需要实现真正的豆包端到端音色转换调用
+        # 根据火山引擎文档 https://www.volcengine.com/docs/6561/1594356
+        
+        # 模拟音色转换 - 实际应该调用豆包API
+        logger.info(f"🔄 调用豆包端到端音色转换: {voice_id}")
+        
+        # 使用现有的TTS服务作为临时实现
+        # 实际应该调用豆包端到端音色转换API
+        
+        # 根据音色ID映射到TTS音色
+        voice_mapping = {
+            'zh_female_qingxin': 'zh-CN-XiaoxiaoNeural',
+            'zh_female_ruyi': 'zh-CN-XiaoxiaoNeural', 
+            'zh_female_aiqi': 'zh-CN-XiaoxiaoNeural',
+            'zh_male_ruyi': 'zh-CN-YunxiNeural',
+            'zh_male_qingxin': 'zh-CN-YunxiNeural',
+            'zh_male_aiqi': 'zh-CN-YunxiNeural',
+            'zh_female_zhichang': 'zh-CN-XiaoxiaoNeural',
+            'zh_male_zhichang': 'zh-CN-YunxiNeural'
+        }
+        
+        tts_voice = voice_mapping.get(voice_id, 'zh-CN-XiaoxiaoNeural')
+        
+        # 调用现有的TTS函数生成音频
+        audio_data = generate_tts_audio(text, tts_voice)
+        
+        if audio_data:
+            logger.info(f"✅ 音色转换完成: {voice_id} -> {tts_voice}")
+            return audio_data
+        else:
+            logger.error(f"❌ 音色转换失败: {voice_id}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"❌ 豆包音色转换调用异常: {e}")
+        return None
+
 @app.route('/api/chat_streaming', methods=['POST'])
 def chat_streaming():
     """AI聊天流式API - 真正的流式实现"""
@@ -1002,6 +1091,11 @@ def chat_streaming():
         conversation_history = data.get('conversation_history', [])  # 获取对话历史
         logger.info(f"🤖 收到流式聊天请求: {message}")
         logger.info(f"📚 对话历史长度: {len(conversation_history)}")
+        
+        # 验证用户身份 - 检查用户是否存在
+        if user_id == 'anonymous' or not db_manager.user_exists(user_id):
+            logger.warning(f"⚠️ 无效的用户ID: {user_id}")
+            return jsonify({'error': '需要有效的用户身份验证'}), 401
         
         # 真正的流式响应生成器
         def generate_streaming_response():
@@ -1110,28 +1204,15 @@ def chat_streaming():
                 
                 # 记录交互到数据库
                 try:
-                    # 使用随机user_id，确保数据库记录
-                    import uuid
-                    random_user_id = f"user_{uuid.uuid4().hex[:8]}"
-                    
-                    # 先创建用户（如果不存在）
-                    try:
-                        password_hash = db_manager.hash_password("random_password")
-                        db_manager.create_user(random_user_id, f"user_{int(time.time())}", password_hash)
-                        logger.info(f"✅ 创建随机用户: {random_user_id}")
-                    except Exception as create_error:
-                        # 用户可能已存在，继续使用
-                        logger.debug(f"用户可能已存在: {create_error}")
-                    
                     db_manager.log_interaction(
-                        user_id=random_user_id,
+                        user_id=user_id,
                         interaction_type='text',
                         content=message,
                         response=full_text,
                         session_id=session_id,
                         success=True
                     )
-                    logger.info(f"✅ 交互记录成功: {random_user_id}")
+                    logger.info(f"✅ 交互记录成功: {user_id}")
                 except Exception as db_error:
                     logger.warning(f"⚠️ 记录交互到数据库失败: {db_error}")
                 
@@ -1184,33 +1265,25 @@ def chat():
         session_id = data.get('session_id', '')
         logger.info(f"🤖 收到聊天请求: {message}")
         
+        # 验证用户身份 - 检查用户是否存在
+        if user_id == 'anonymous' or not db_manager.user_exists(user_id):
+            logger.warning(f"⚠️ 无效的用户ID: {user_id}")
+            return jsonify({'error': '需要有效的用户身份验证'}), 401
+        
         # 调用DeepSeek API
         ai_response = chat_with_deepseek(message)
         
         # 记录交互到数据库
         try:
-            # 使用随机user_id，确保数据库记录
-            import uuid
-            random_user_id = f"user_{uuid.uuid4().hex[:8]}"
-            
-            # 先创建用户（如果不存在）
-            try:
-                password_hash = db_manager.hash_password("random_password")
-                db_manager.create_user(random_user_id, f"user_{int(time.time())}", password_hash)
-                logger.info(f"✅ 创建随机用户: {random_user_id}")
-            except Exception as create_error:
-                # 用户可能已存在，继续使用
-                logger.debug(f"用户可能已存在: {create_error}")
-            
             db_manager.log_interaction(
-                user_id=random_user_id,
+                user_id=user_id,
                 interaction_type='text',
                 content=message,
                 response=ai_response,
                 session_id=session_id,
                 success=True
             )
-            logger.info(f"✅ 交互记录成功: {random_user_id}")
+            logger.info(f"✅ 交互记录成功: {user_id}")
         except Exception as db_error:
             logger.warning(f"⚠️ 记录交互到数据库失败: {db_error}")
         
@@ -1353,7 +1426,7 @@ def tts_stats():
                     'health_monitoring',
                     'config_management'
                 ],
-                'voice_count': len(TTS_CONFIG['voice_options']),
+                'voice_count': 5,  # 支持的音色数量
                 'max_retries': TTS_CONFIG['max_retries'],
                 'timeout_total': TTS_CONFIG['timeout_total']
             }
@@ -1477,7 +1550,9 @@ def log_interaction():
     """记录交互"""
     try:
         data = request.get_json()
+        logger.info(f"🔍 收到交互记录请求: {data}")
         if not data or 'user_id' not in data or 'interaction_type' not in data or 'content' not in data:
+            logger.error(f"❌ 缺少必要参数: {data}")
             return jsonify({'error': '缺少必要参数'}), 400
         
         user_id = data['user_id']
@@ -1490,9 +1565,14 @@ def log_interaction():
         error_message = data.get('error_message', '')
         
         # 验证交互类型
-        valid_types = ['text', 'voice_home', 'voice_call']
+        valid_types = ['text', 'voice_home', 'voice_call', 'tts_play']
         if interaction_type not in valid_types:
             return jsonify({'error': f'无效的交互类型，必须是: {valid_types}'}), 400
+        
+        # 检查用户是否存在，如果不存在则拒绝请求
+        if not db_manager.user_exists(user_id):
+            logger.warning(f"⚠️ 用户 {user_id} 不存在，拒绝记录交互")
+            return jsonify({'error': '用户身份验证失败，请重新登录'}), 401
         
         # 记录交互
         success_log = db_manager.log_interaction(
@@ -1513,6 +1593,27 @@ def log_interaction():
         
     except Exception as e:
         logger.error(f"❌ 记录交互失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/interactions/query', methods=['GET'])
+def query_interactions():
+    """查询交互记录"""
+    try:
+        interaction_type = request.args.get('interaction_type')
+        user_id = request.args.get('user_id')
+        limit = int(request.args.get('limit', 10))
+        
+        # 查询数据库
+        records = db_manager.query_interactions(
+            interaction_type=interaction_type,
+            user_id=user_id,
+            limit=limit
+        )
+        
+        return jsonify(records)
+        
+    except Exception as e:
+        logger.error(f"❌ 查询交互记录失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/interactions/history', methods=['GET'])

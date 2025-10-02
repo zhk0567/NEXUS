@@ -10,7 +10,7 @@ import retrofit2.Call
 interface ApiService {
     
     @GET("health")
-    suspend fun healthCheck(): Response<Map<String, Any>>
+    suspend fun healthCheck(): Response<Map<String, String>>
     
     @POST("api/chat")
     suspend fun chatWithAI(
@@ -41,6 +41,9 @@ interface ApiService {
     
     @POST("api/tts")
     suspend fun textToSpeech(@Body request: Map<String, String>): Response<ResponseBody>
+    
+    @POST("api/interactions/log")
+    suspend fun logInteraction(@Body request: LogInteractionRequest): Response<Map<String, String>>
 }
 
 data class ChatResponse(
@@ -64,5 +67,16 @@ data class VoiceChatResponse(
     val response: String,
     val asr_time_ms: Double,
     val api_time_ms: Double
+)
+
+data class LogInteractionRequest(
+    val user_id: String,
+    val interaction_type: String,
+    val content: String,
+    val response: String,
+    val session_id: String,
+    val duration_seconds: Int,
+    val success: Boolean,
+    val error_message: String
 )
 

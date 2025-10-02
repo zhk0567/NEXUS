@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -39,6 +40,9 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
 import androidx.compose.material3.*
@@ -70,6 +74,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.rotate
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.*
@@ -84,14 +89,24 @@ import com.llasm.nexusunified.ui.components.DraggableFloatingActionButton
 import com.llasm.nexusunified.service.ASRService
 import com.llasm.nexusunified.service.ASRStatus
 import com.llasm.nexusunified.service.TTSService
+import com.llasm.nexusunified.config.ServerConfig
+import com.llasm.nexusunified.data.UserManager
+import com.llasm.nexusunified.data.UserData
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.OutputStreamWriter
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
-    onVoiceCallClick: () -> Unit = {}
+    onVoiceCallClick: () -> Unit = {},
+    onShowLoginDialog: (() -> Unit)? = null
 ) {
     var inputText by remember { mutableStateOf("") }
     var isRecording by remember { mutableStateOf(false) }
@@ -105,7 +120,6 @@ fun ChatScreen(
     var showAccountSettings by remember { mutableStateOf(false) } // 账号设置页面状态
     var showVoiceSettings by remember { mutableStateOf(false) } // 音调选择页面状态
     var showThemeSettings by remember { mutableStateOf(false) } // 主题设置页面状态
-    var showGeneralSettings by remember { mutableStateOf(false) } // 通用设置页面状态
     var showAboutPage by remember { mutableStateOf(false) } // 关于页面状态
     var showDeleteConfirmDialog by remember { mutableStateOf(false) } // 删除确认对话框状态
     var messageToDelete by remember { mutableStateOf<ChatMessage?>(null) } // 待删除的消息
@@ -123,12 +137,23 @@ fun ChatScreen(
         SettingsManager.initializeTheme(context)
     }
     
+    // 检查登录状态
+    val isLoggedIn = UserManager.isLoggedIn()
+    
+    // 如果未登录，显示登录对话框
+    if (!isLoggedIn && onShowLoginDialog != null) {
+        LaunchedEffect(Unit) {
+            onShowLoginDialog()
+        }
+    }
+    
+    
     val themeColors = SettingsManager.getThemeColors(context)
     val fontStyle = SettingsManager.getFontStyle()
     
     // 初始化ASR和TTS服务
     val asrService = remember { ASRService(context) }
-    val ttsService = remember { TTSService(context) }
+    val ttsService = remember { TTSService.getInstance(context) }
     
     // 确保TTS服务正确初始化
     LaunchedEffect(Unit) {
@@ -141,6 +166,10 @@ fun ChatScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val playingMessageId by viewModel.playingMessageId.collectAsStateWithLifecycle()
+    val isTTSLoading by viewModel.isTTSLoading.collectAsStateWithLifecycle()
+    val loadingTTSMessageId by viewModel.loadingTTSMessageId.collectAsStateWithLifecycle()
+    val isASRRecognizing by viewModel.isASRRecognizing.collectAsStateWithLifecycle()
+    val asrRecognizingText by viewModel.asrRecognizingText.collectAsStateWithLifecycle()
     
     // 流式对话状态
     val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
@@ -161,87 +190,9 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
     var recordingJob by remember { mutableStateOf<Job?>(null) }
     
-    LaunchedEffect(isRecording) {
-        android.util.Log.d("ChatScreen", "=== LaunchedEffect触发 ===")
-        android.util.Log.d("ChatScreen", "isRecording: $isRecording")
-        android.util.Log.d("ChatScreen", "触发时间: ${System.currentTimeMillis()}")
-        
-        if (isRecording) {
-            android.util.Log.d("ChatScreen", "=== 开始录音流程 ===")
-            // 使用rememberCoroutineScope避免作用域取消问题
-            recordingJob = scope.launch {
-                try {
-                    android.util.Log.d("ChatScreen", "调用asrService.recordAndTranscribe")
-                    asrService.recordAndTranscribe(
-                        onRecordingStart = {
-                            android.util.Log.d("ChatScreen", "=== 录音开始回调 ===")
-                        },
-                        onRecordingStop = {
-                            android.util.Log.d("ChatScreen", "=== 录音停止回调 ===")
-                            android.util.Log.d("ChatScreen", "设置isTranscribing = true")
-                            // 录制停止，开始识别
-                            isTranscribing = true
-                            android.util.Log.d("ChatScreen", "isTranscribing已设置为: $isTranscribing")
-                        },
-                        onTranscriptionResult = { text ->
-                            android.util.Log.d("ChatScreen", "=== 转录结果回调 ===")
-                            android.util.Log.d("ChatScreen", "转录结果: $text")
-                            // 转录完成，发送消息
-                            if (text != null && text.isNotBlank()) {
-                                android.util.Log.d("ChatScreen", "发送转录文本到AI: $text")
-                                viewModel.sendStreamingMessageWithHistory(text)
-                            } else {
-                                android.util.Log.w("ChatScreen", "转录结果为空或空白")
-                            }
-                            isRecording = false
-                            isTranscribing = false
-                            asrStatus = ASRStatus(false, 0, null, null, "unknown")
-                            android.util.Log.d("ChatScreen", "重置状态: isRecording=false, isTranscribing=false")
-                        },
-                        onError = { error ->
-                            android.util.Log.e("ChatScreen", "=== 录音错误回调 ===")
-                            android.util.Log.e("ChatScreen", "录音错误: $error")
-                            // 处理错误
-                            isRecording = false
-                            isTranscribing = false
-                            asrStatus = ASRStatus(false, 0, null, null, "error")
-                            android.util.Log.d("ChatScreen", "错误处理完成: isRecording=false, isTranscribing=false")
-                        },
-                        onStatusUpdate = { status ->
-                            android.util.Log.d("ChatScreen", "=== ASR状态更新 ===")
-                            android.util.Log.d("ChatScreen", "ASR状态: 处理中=${status.isProcessing}, 进度=${status.progress}%")
-                            asrStatus = status
-                            // 根据后端状态更新本地状态
-                            isTranscribing = status.isProcessing
-                        }
-                    )
-                    android.util.Log.d("ChatScreen", "asrService.recordAndTranscribe调用完成")
-                } catch (e: Exception) {
-                    android.util.Log.e("ChatScreen", "=== 录音异常 ===")
-                    android.util.Log.e("ChatScreen", "录音异常: ${e.message}", e)
-                    isRecording = false
-                    isTranscribing = false
-                    android.util.Log.d("ChatScreen", "异常处理完成: isRecording=false, isTranscribing=false")
-                }
-            }
-        } else {
-            android.util.Log.d("ChatScreen", "录音状态为false，不启动录音流程")
-            // 如果录音被停止，立即停止录音并取消Job
-            recordingJob?.cancel()
-            recordingJob = null
-            // 立即停止录音
-            asrService.stopRecording()
-            android.util.Log.d("ChatScreen", "录音已立即停止")
-        }
-        android.util.Log.d("ChatScreen", "=== LaunchedEffect完成 ===")
-    }
+    // 移除了冲突的LaunchedEffect，录音逻辑现在完全由onHoldToSpeak控制
     
-    // 处理录制停止时的识别状态
-    LaunchedEffect(isRecording) {
-        if (!isRecording && isTranscribing) {
-            android.util.Log.d("ChatScreen", "录制停止，显示识别中状态")
-        }
-    }
+    // 移除了第二个冲突的LaunchedEffect
     
     // 处理TTS播放
     LaunchedEffect(Unit) {
@@ -361,6 +312,9 @@ fun ChatScreen(
                 themeColors = themeColors,
                 fontStyle = fontStyle,
                 onSendClick = {
+                             if (!isLoggedIn) {
+                                 onShowLoginDialog?.invoke()
+                             } else {
                              if (isLoading || isStreaming) {
                                  if (isStreaming) {
                                      viewModel.stopStreaming()
@@ -370,22 +324,58 @@ fun ChatScreen(
                              } else if (inputText.isNotBlank()) {
                                  viewModel.sendStreamingMessageWithHistory(inputText)
                                  inputText = ""
+                                 }
                              }
                          },
                 onVoiceClick = {
+                    if (!isLoggedIn) {
+                        onShowLoginDialog?.invoke()
+                    } else {
                     // 语音输入逻辑 - 切换到语音模式
                     android.util.Log.d("ChatScreen", "录音按钮被点击，切换到语音模式")
                     isVoiceMode = true
+                    }
                 },
                 onHoldToSpeak = { isHolding ->
-                    android.util.Log.d("ChatScreen", "=== onHoldToSpeak回调 ===")
-                    android.util.Log.d("ChatScreen", "参数isHolding: $isHolding")
-                    android.util.Log.d("ChatScreen", "当前isRecording: $isRecording")
-                    android.util.Log.d("ChatScreen", "设置isRecording = $isHolding")
-                    isRecording = isHolding
-                    android.util.Log.d("ChatScreen", "isRecording已设置为: $isRecording")
-                    android.util.Log.d("ChatScreen", "=== onHoldToSpeak回调完成 ===")
-                }
+                    if (isHolding) {
+                        android.util.Log.d("ChatScreen", "开始录音...")
+                        val success = asrService.startRecording()
+                        android.util.Log.d("ChatScreen", "录音启动结果: $success")
+                        if (success) {
+                            isRecording = true
+                            android.util.Log.d("ChatScreen", "录音状态设置为true")
+                        } else {
+                            android.util.Log.e("ChatScreen", "录音启动失败")
+                        }
+                    } else {
+                        isRecording = false
+                        val audioData = asrService.stopRecording()
+                        
+                        if (audioData != null && audioData.isNotEmpty()) {
+                            viewModel.startASRRecognition()
+                            viewModel.updateASRRecognizingText("正在识别中...")
+                            
+                            CoroutineScope(Dispatchers.Main).launch {
+                                try {
+                                    val transcription = asrService.transcribeAudio(audioData)
+                                    if (transcription != null && transcription.isNotEmpty()) {
+                                        // 直接发送识别结果，使用流式输出
+                                        viewModel.sendStreamingMessage(transcription)
+                                    }
+                                } catch (e: Exception) {
+                                    // 忽略异常
+                                } finally {
+                                    isVoiceMode = false
+                                    viewModel.completeASRRecognition()
+                                }
+                            }
+                        } else {
+                            isVoiceMode = false
+                        }
+                    }
+                },
+                isASRRecognizing = isASRRecognizing,
+                asrRecognizingText = asrRecognizingText
             )
          }
     ) { paddingValues ->
@@ -454,7 +444,11 @@ fun ChatScreen(
                             onLongPress = { msg ->
                                 messageToDelete = msg
                                 showDeleteConfirmDialog = true
-                            }
+                            },
+                            isLoggedIn = isLoggedIn,
+                            onShowLoginDialog = onShowLoginDialog,
+                            isTTSLoading = isTTSLoading,
+                            loadingTTSMessageId = loadingTTSMessageId
                         )
                     }
                     
@@ -472,7 +466,9 @@ fun ChatScreen(
                                 onLongPress = { msg ->
                                     messageToDelete = msg
                                     showDeleteConfirmDialog = true
-                                }
+                                },
+                                isLoggedIn = isLoggedIn,
+                                onShowLoginDialog = onShowLoginDialog
                             )
                         }
                     }
@@ -494,9 +490,13 @@ fun ChatScreen(
             // 可拖动的悬浮球 - 电话模式入口
             DraggableFloatingActionButton(
                 onClick = {
+                    if (!isLoggedIn) {
+                        onShowLoginDialog?.invoke()
+                    } else {
                     // 添加日志确认点击
                     android.util.Log.d("ChatScreen", "电话模式按钮被点击")
                     onVoiceCallClick()
+                    }
                 },
                 containerColor = Color(0xFF424242), // 黑灰色
                 contentColor = Color.White
@@ -552,17 +552,14 @@ fun ChatScreen(
                 showSettingsPage = false
                 showThemeSettings = true
             },
-            onNavigateToGeneral = { 
-                showSettingsPage = false
-                showGeneralSettings = true
-            },
             onNavigateToAbout = { 
                 showSettingsPage = false
                 showAboutPage = true
             },
             onLogoutClick = { 
                 showSettingsPage = false
-                // 这里可以添加退出登录的逻辑
+                // 登出后显示登录对话框
+                onShowLoginDialog?.invoke()
             }
         )
     }
@@ -597,15 +594,6 @@ fun ChatScreen(
         )
     }
     
-    // 通用设置页面
-    if (showGeneralSettings) {
-        GeneralSettingsPage(
-            onBackClick = { 
-                showGeneralSettings = false
-                showSettingsPage = true
-            }
-        )
-    }
     
     // 关于页面
     if (showAboutPage) {
@@ -762,7 +750,9 @@ fun WeChatStyleInputBar(
     fontStyle: FontStyle,
     onSendClick: () -> Unit,
     onVoiceClick: () -> Unit,
-    onHoldToSpeak: (Boolean) -> Unit
+    onHoldToSpeak: (Boolean) -> Unit,
+    isASRRecognizing: Boolean = false,
+    asrRecognizingText: String = ""
 ) {
     Card(
         modifier = Modifier
@@ -786,7 +776,9 @@ fun WeChatStyleInputBar(
                 themeColors = themeColors,
                 fontStyle = fontStyle,
                 onHoldToSpeak = onHoldToSpeak,
-                onVoiceModeChange = onVoiceModeChange
+                onVoiceModeChange = onVoiceModeChange,
+                isASRRecognizing = isASRRecognizing,
+                asrRecognizingText = asrRecognizingText
             )
         } else {
             // 文字模式：显示正常的输入框
@@ -905,10 +897,15 @@ fun ChatMessageItem(
     themeColors: ThemeColors,
     fontStyle: FontStyle,
     onPlayingStateChange: (Boolean) -> Unit,
-    onLongPress: (ChatMessage) -> Unit
+    onLongPress: (ChatMessage) -> Unit,
+    isLoggedIn: Boolean,
+    onShowLoginDialog: (() -> Unit)?,
+    isTTSLoading: Boolean,
+    loadingTTSMessageId: String?
 ) {
     val isUser = message.isUser
     val isPlaying = playingMessageId == message.id
+    val isLoadingTTS = loadingTTSMessageId == message.id
     
     Row(
         modifier = Modifier
@@ -974,23 +971,163 @@ fun ChatMessageItem(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 播放按钮
+                        // 播放按钮 - 加载状态和圆形收缩动画
+                        var showPulse by remember { mutableStateOf(false) }
+                        
+                        // 省略号加载动画 - 波浪效果
+                        val infiniteTransition = rememberInfiniteTransition(label = "loading")
+                        val animationProgress by infiniteTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1200, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "progress"
+                        )
+                        
+                        // 计算每个点的透明度，实现波浪效果
+                        val dot1Alpha = when {
+                            animationProgress < 0.33f -> 0.3f + (animationProgress / 0.33f) * 0.7f
+                            animationProgress < 0.66f -> 1f - ((animationProgress - 0.33f) / 0.33f) * 0.7f
+                            else -> 0.3f
+                        }
+                        
+                        val dot2Alpha = when {
+                            animationProgress < 0.33f -> 0.3f
+                            animationProgress < 0.66f -> 0.3f + ((animationProgress - 0.33f) / 0.33f) * 0.7f
+                            animationProgress < 1f -> 1f - ((animationProgress - 0.66f) / 0.34f) * 0.7f
+                            else -> 0.3f
+                        }
+                        
+                        val dot3Alpha = when {
+                            animationProgress < 0.66f -> 0.3f
+                            animationProgress < 1f -> 0.3f + ((animationProgress - 0.66f) / 0.34f) * 0.7f
+                            else -> 0.3f
+                        }
+                        
+                        // 播放时的圆形收缩动画
+                        val breathingTransition = rememberInfiniteTransition(label = "breathing")
+                        val breathingScale by breathingTransition.animateFloat(
+                            initialValue = 1f,
+                            targetValue = 0.8f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1000, easing = EaseInOut),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "breathing"
+                        )
+                        
+                        // 脉冲效果
+                        val pulseTransition = rememberInfiniteTransition(label = "pulse")
+                        val pulseScale by pulseTransition.animateFloat(
+                            initialValue = 1f,
+                            targetValue = 1.2f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(800, easing = EaseInOut),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "pulse"
+                        )
+                        
+                        // 处理准备播放效果
+                        LaunchedEffect(isLoadingTTS) {
+                            if (isLoadingTTS) {
+                                showPulse = true
+                                kotlinx.coroutines.delay(2000)
+                                showPulse = false
+                            }
+                        }
+                        
+                        Box(
+                            modifier = Modifier.size(40.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // 脉冲背景效果（加载时）
+                            if (showPulse && isLoadingTTS) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .scale(pulseScale)
+                                        .background(
+                                            Color(0xFF4CAF50).copy(alpha = 0.3f),
+                                            CircleShape
+                                        )
+                                )
+                            }
+                            
+                            // 播放时的圆形收缩背景
+                            if (isPlaying) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .scale(breathingScale)
+                                        .background(
+                                            Color(0xFF4CAF50).copy(alpha = 0.2f),
+                                            CircleShape
+                                        )
+                                )
+                            }
+                            
+                            // 主按钮
                         IconButton(
                             onClick = { 
+                                    if (!isLoggedIn) {
+                                        onShowLoginDialog?.invoke()
+                                    } else {
                                 if (isPlaying) {
                                     viewModel.stopAudio()
                                 } else {
                                 viewModel.playAudioForMessage(message.id, message.content)
+                                        }
                                 }
                             },
                             modifier = Modifier.size(32.dp)
                             ) {
+                                if (isLoadingTTS) {
+                                    // 加载状态 - 省略号动画
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // 第一个点
+                                        Box(
+                                            modifier = Modifier
+                                                .size(4.dp)
+                                                .background(
+                                                    Color(0xFF4CAF50).copy(alpha = dot1Alpha),
+                                                    CircleShape
+                                                )
+                                        )
+                                        // 第二个点
+                                        Box(
+                                            modifier = Modifier
+                                                .size(4.dp)
+                                                .background(
+                                                    Color(0xFF4CAF50).copy(alpha = dot2Alpha),
+                                                    CircleShape
+                                                )
+                                        )
+                                        // 第三个点
+                                        Box(
+                                            modifier = Modifier
+                                                .size(4.dp)
+                                                .background(
+                                                    Color(0xFF4CAF50).copy(alpha = dot3Alpha),
+                                                    CircleShape
+                                                )
+                                        )
+                                    }
+                                } else {
+                                    // 正常状态
                                 Icon(
-                                imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.Phone,
+                                        imageVector = Icons.Default.VolumeUp,
                                 contentDescription = if (isPlaying) "停止播放" else "播放语音",
-                                tint = themeColors.primary,
+                                        tint = if (isPlaying) Color(0xFF4CAF50) else themeColors.primary,
                                 modifier = Modifier.size(fontStyle.iconSize.dp * 0.8f)
                             )
+                                }
+                            }
                         }
                         
                         // 刷新按钮
@@ -1045,7 +1182,9 @@ fun StreamingMessageItem(
     playingMessageId: String?,
     themeColors: ThemeColors,
     fontStyle: FontStyle,
-    onLongPress: (ChatMessage) -> Unit
+    onLongPress: (ChatMessage) -> Unit,
+    isLoggedIn: Boolean,
+    onShowLoginDialog: (() -> Unit)?
 ) {
     val isPlaying = playingMessageId == message.id
     
@@ -1121,23 +1260,94 @@ fun StreamingMessageItem(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                    // 播放按钮
+                    // 播放按钮 - 改进的点击效果
+                    var isPreparingTTS by remember { mutableStateOf(false) }
+                    var showPulse by remember { mutableStateOf(false) }
+                    
+                    // 动画效果
+                    val scale by animateFloatAsState(
+                        targetValue = if (isPreparingTTS) 1.3f else 1f,
+                        animationSpec = tween(200),
+                        label = "scale"
+                    )
+                    
+                    val alpha by animateFloatAsState(
+                        targetValue = if (isPreparingTTS) 0.8f else 1f,
+                        animationSpec = tween(200),
+                        label = "alpha"
+                    )
+                    
+                    // 脉冲效果
+                    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                    val pulseScale by infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(800, easing = EaseInOut),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "pulse"
+                    )
+                    
+                    // 处理准备播放效果
+                    LaunchedEffect(isPreparingTTS) {
+                        if (isPreparingTTS) {
+                            showPulse = true
+                            kotlinx.coroutines.delay(1500)
+                            isPreparingTTS = false
+                            showPulse = false
+                        }
+                    }
+                    
+                    Box(
+                        modifier = Modifier.size(40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // 脉冲背景效果
+                        if (showPulse) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .scale(pulseScale)
+                                    .background(
+                                        Color(0xFF4CAF50).copy(alpha = 0.3f),
+                                        CircleShape
+                                    )
+                            )
+                        }
+                        
+                        // 主按钮
                     IconButton(
                         onClick = {
+                                if (!isLoggedIn) {
+                                    onShowLoginDialog?.invoke()
+                                } else {
                             if (isPlaying) {
                                 viewModel.stopAudio()
                             } else {
+                                        // 显示准备播放效果
+                                        isPreparingTTS = true
                                 viewModel.playAudioForMessage(message.id, message.content)
+                                    }
                             }
                         },
-                        modifier = Modifier.size(32.dp)
+                            modifier = Modifier
+                                .size(32.dp)
+                                .scale(scale)
+                                .alpha(alpha)
                     ) {
                         Icon(
-                            imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.Phone,
+                                imageVector = Icons.Default.VolumeUp,
                             contentDescription = if (isPlaying) "停止播放" else "播放语音",
-                                tint = themeColors.primary,
-                                modifier = Modifier.size(fontStyle.iconSize.dp * 0.8f)
-                        )
+                                tint = if (isPreparingTTS) Color(0xFF4CAF50) else themeColors.primary,
+                                modifier = Modifier
+                                    .size(fontStyle.iconSize.dp * 0.8f)
+                                    .background(
+                                        if (isPreparingTTS) Color(0xFF4CAF50).copy(alpha = 0.2f) else Color.Transparent,
+                                        CircleShape
+                                    )
+                            )
+                        }
                     }
                     
                     // 刷新按钮
@@ -1422,7 +1632,9 @@ fun VoiceModeInputBar(
     themeColors: ThemeColors,
     fontStyle: FontStyle,
     onHoldToSpeak: (Boolean) -> Unit,
-    onVoiceModeChange: (Boolean) -> Unit
+    onVoiceModeChange: (Boolean) -> Unit,
+    isASRRecognizing: Boolean = false,
+    asrRecognizingText: String = ""
 ) {
     // 简化的录音状态管理
     var isHolding by remember { mutableStateOf(false) }
@@ -1452,7 +1664,7 @@ fun VoiceModeInputBar(
         // 返回文字模式按钮
         IconButton(
             onClick = { onVoiceModeChange(false) },
-            enabled = !isLoading && !isStreaming,
+            enabled = !isLoading && !isStreaming && !isASRRecognizing,
             modifier = Modifier.size(40.dp)
         ) {
             Icon(
@@ -1472,73 +1684,33 @@ fun VoiceModeInputBar(
                     when {
                         isCancelling -> Color(0xFFFF5722) // 取消状态 - 红色
                         isRecording -> Color(0xFFFF5722) // 录音中 - 橙色
-                        isLoading || isStreaming -> Color(0xFFE0E0E0) // 禁用状态 - 灰色
+                        isLoading || isStreaming || isASRRecognizing -> Color(0xFFE0E0E0) // 禁用状态 - 灰色
                         else -> Color(0xFF07C160) // 正常状态 - 微信绿
                     },
                     RoundedCornerShape(20.dp)
                 )
-                .pointerInput(isLoading, isStreaming) {
-                    if (!isLoading && !isStreaming) {
+                .pointerInput(isLoading, isStreaming, isASRRecognizing) {
+                    if (!isLoading && !isStreaming && !isASRRecognizing) {
                         detectTapGestures(
-                            onPress = {
-                                isHolding = true
-                                startY = it.y
-                                currentY = it.y
-                                isCancelling = false
-                                android.util.Log.d("ChatScreen", "=== 开始按压录音 ===")
+                            onPress = { offset ->
+                                android.util.Log.d("ChatScreen", "=== 按下开始录音 ===")
                                 onHoldToSpeak(true)
-                                
-                                // 等待释放
-                                tryAwaitRelease()
-                                
-                                // 释放时停止录音
-                                if (isHolding) {
-                                    isHolding = false
-                                    val wasCancelling = isCancelling
-                                    isCancelling = false
-                                    android.util.Log.d("ChatScreen", "=== 按压释放，取消状态: $wasCancelling ===")
-                                    if (!wasCancelling) {
-                                        onHoldToSpeak(false)
-                                    }
+                                try {
+                                    // 等待释放
+                                    tryAwaitRelease()
+                                    android.util.Log.d("ChatScreen", "=== 松开停止录音 ===")
+                                    onHoldToSpeak(false)
+                                } catch (e: Exception) {
+                                    android.util.Log.d("ChatScreen", "=== 异常停止录音 ===")
+                                    onHoldToSpeak(false)
                                 }
                             }
                         )
-                    }
-                }
-                .pointerInput(isLoading, isStreaming) {
-                    if (!isLoading && !isStreaming) {
-                        detectDragGestures(
-                            onDragStart = { offset ->
-                                if (isHolding) {
-                                    startY = offset.y
-                                    currentY = offset.y
-                                    android.util.Log.d("ChatScreen", "=== 开始拖拽检测 ===")
-                                }
-                            },
-                            onDrag = { _, dragAmount ->
-                                if (isHolding) {
-                                    currentY += dragAmount.y
-                                    val newCancelling = shouldCancel
-                                    if (newCancelling != isCancelling) {
-                                        isCancelling = newCancelling
-                                        android.util.Log.d("ChatScreen", "取消状态变化: $isCancelling")
-                                    }
-                                }
-                            },
-                            onDragEnd = {
-                                if (isHolding) {
-                                    isHolding = false
-                                    val wasCancelling = isCancelling
-                                    isCancelling = false
-                                    android.util.Log.d("ChatScreen", "=== 拖拽结束，取消状态: $wasCancelling ===")
-                                    if (!wasCancelling) {
-                            onHoldToSpeak(false)
-                        }
-                    }
-                            }
-                        )
+                    } else {
+                        android.util.Log.w("ChatScreen", "=== 按钮被禁用 ===")
                     }
                 },
+                // 移除了重复的detectDragGestures，按压和拖拽逻辑已合并
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -1562,12 +1734,13 @@ fun VoiceModeInputBar(
                         isCancelling -> "松开取消"
                         isRecording -> "松开结束"
                     isLoading || isStreaming -> "AI处理中..."
+                        isASRRecognizing -> asrRecognizingText.ifEmpty { "正在识别中..." }
                         else -> "按住说话"
                 },
                 color = when {
                         isCancelling -> Color.White
                     isRecording -> Color.White
-                        isLoading || isStreaming -> themeColors.textSecondary
+                        isLoading || isStreaming || isASRRecognizing -> themeColors.textSecondary
                     else -> Color.White
                 },
                     style = fontStyle.bodyMedium,
@@ -1590,6 +1763,73 @@ fun VoiceModeInputBar(
 }
 
 // 登录对话框组件
+// 登录API调用函数
+fun loginUser(username: String, password: String, callback: (Boolean, String?) -> Unit) {
+    Thread {
+        try {
+            val url = URL(ServerConfig.getApiUrl(ServerConfig.Endpoints.AUTH_LOGIN))
+            val connection = url.openConnection() as HttpURLConnection
+            
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.doOutput = true
+            
+            val jsonObject = JSONObject()
+            jsonObject.put("username", username)
+            jsonObject.put("password", password)
+            jsonObject.put("device_info", "Android")
+            
+            val outputStream = connection.outputStream
+            val writer = OutputStreamWriter(outputStream)
+            writer.write(jsonObject.toString())
+            writer.flush()
+            writer.close()
+            
+            val responseCode = connection.responseCode
+            val inputStream = if (responseCode == HttpURLConnection.HTTP_OK) {
+                connection.inputStream
+            } else {
+                connection.errorStream
+            }
+            
+            val reader = BufferedReader(InputStreamReader(inputStream))
+            val response = StringBuilder()
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                response.append(line)
+            }
+            reader.close()
+            
+            val jsonResponse = JSONObject(response.toString())
+            
+            if (responseCode == HttpURLConnection.HTTP_OK && jsonResponse.getBoolean("success")) {
+                // 登录成功，保存用户信息
+                val user = jsonResponse.getJSONObject("user")
+                val sessionId = jsonResponse.getString("session_id")
+                
+                val userData = UserData(
+                    userId = user.getString("user_id"),
+                    username = user.getString("username"),
+                    sessionId = sessionId,
+                    createdAt = user.optString("created_at", null),
+                    lastLoginAt = user.optString("last_login_at", null)
+                )
+                
+                // 保存用户信息到SharedPreferences
+                UserManager.saveLoginData(userData)
+                
+                callback(true, null)
+            } else {
+                val errorMessage = jsonResponse.optString("error", "登录失败")
+                callback(false, errorMessage)
+            }
+            
+        } catch (e: Exception) {
+            callback(false, "网络连接失败: ${e.message}")
+        }
+    }.start()
+}
+
 @Composable
 fun LoginDialog(
     onDismiss: () -> Unit,
@@ -1600,6 +1840,7 @@ fun LoginDialog(
     var isPasswordVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
+    var showSuccessMessage by remember { mutableStateOf(false) }
     
     // 获取当前字体样式
     val fontStyle = SettingsManager.getFontStyle()
@@ -1659,6 +1900,16 @@ fun LoginDialog(
                     singleLine = true
                 )
                 
+                // 成功信息显示
+                if (showSuccessMessage) {
+                    Text(
+                        text = "登录成功！",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                
                 // 错误信息显示
                 if (errorMessage.isNotEmpty()) {
                     Text(
@@ -1680,13 +1931,19 @@ fun LoginDialog(
                     isLoading = true
                     errorMessage = ""
                     
-                    // 模拟登录验证
-                    // 这里可以添加真实的登录逻辑
-                    if (username == "admin" && password == "123456") {
-                        onLoginSuccess()
-                    } else {
-                        errorMessage = "账号或密码错误"
+                    // 调用后端登录API
+                    loginUser(username, password) { success, message ->
                         isLoading = false
+                        if (success) {
+                            showSuccessMessage = true
+                            // 延迟关闭对话框，让用户看到成功提示
+                            kotlinx.coroutines.GlobalScope.launch {
+                                kotlinx.coroutines.delay(1500)
+                                onLoginSuccess()
+                            }
+                        } else {
+                            errorMessage = message ?: "登录失败"
+                        }
                     }
                 },
                 enabled = !isLoading && username.isNotBlank() && password.isNotBlank()

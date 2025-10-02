@@ -36,7 +36,7 @@ fun VoiceSettingsPage(
     val fontStyle = SettingsManager.getFontStyle()
     
     // 初始化TTS服务
-    val ttsService = remember { TTSService(context) }
+    val ttsService = remember { TTSService.getInstance(context) }
     val coroutineScope = rememberCoroutineScope()
     
     // 从SharedPreferences加载选中的音色

@@ -11,7 +11,6 @@ import com.llasm.nexusunified.service.AIService
 import com.llasm.nexusunified.service.StreamingAIService
 import com.llasm.nexusunified.service.TTSService
 import com.llasm.nexusunified.service.SimpleTTSService
-import com.llasm.nexusunified.monitor.MonitorClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,10 +36,25 @@ class ChatViewModel : ViewModel() {
     private val _playingMessageId = MutableStateFlow<String?>(null)
     val playingMessageId: StateFlow<String?> = _playingMessageId.asStateFlow()
     
+    // TTS加载状态
+    private val _isTTSLoading = MutableStateFlow(false)
+    val isTTSLoading: StateFlow<Boolean> = _isTTSLoading.asStateFlow()
+    
+    // 管理每个消息的TTS加载状态
+    private val _loadingTTSMessageId = MutableStateFlow<String?>(null)
+    val loadingTTSMessageId: StateFlow<String?> = _loadingTTSMessageId.asStateFlow()
+    
+    // ASR识别状态
+    private val _isASRRecognizing = MutableStateFlow(false)
+    val isASRRecognizing: StateFlow<Boolean> = _isASRRecognizing.asStateFlow()
+    
+    // ASR识别文本
+    private val _asrRecognizingText = MutableStateFlow("")
+    val asrRecognizingText: StateFlow<String> = _asrRecognizingText.asStateFlow()
+    
     private var currentRequestJob: Job? = null
     private var aiService: AIService? = null
     private var streamingAIService: StreamingAIService? = null
-    private var monitorClient: MonitorClient? = null
     private var context: Context? = null
     private var conversationRepository: ConversationRepository? = null
     
@@ -62,8 +76,11 @@ class ChatViewModel : ViewModel() {
         this.context = context
         aiService = AIService(context)
         streamingAIService = StreamingAIService(context)
-        monitorClient = MonitorClient(context)
         conversationRepository = ConversationRepository(context)
+        
+        // 预加载常用TTS音频
+        val ttsService = TTSService.getInstance(context)
+        ttsService.preloadCommonAudio()
     }
     
     fun sendMessage(content: String) {
@@ -95,12 +112,6 @@ class ChatViewModel : ViewModel() {
                     return@launch
                 }
                 
-                // 发送聊天行为到监控后端
-                monitorClient?.sendChatBehavior(
-                    userId = "user_${System.currentTimeMillis()}",
-                    message = content.trim(),
-                    success = true
-                )
                 
                 // 检查API配置
                 val apiConfig = aiService.checkApiConfiguration()
@@ -131,25 +142,11 @@ class ChatViewModel : ViewModel() {
                     // 保存消息到历史记录
                     saveCurrentMessagesToConversation()
                     
-                    // 发送成功的聊天行为到监控后端
+                    // 聊天成功
                     val duration = (System.currentTimeMillis() - startTime) / 1000.0
-                    monitorClient?.sendChatBehavior(
-                        userId = "user_${System.currentTimeMillis()}",
-                        message = content.trim(),
-                        response = chatResponse.response,
-                        duration = duration,
-                        success = true
-                    )
                 } else {
                     _error.value = "AI对话失败: ${result.exceptionOrNull()?.message}"
                     
-                    // 发送失败的聊天行为到监控后端
-                    monitorClient?.sendChatBehavior(
-                        userId = "user_${System.currentTimeMillis()}",
-                        message = content.trim(),
-                        duration = (System.currentTimeMillis() - startTime) / 1000.0,
-                        success = false
-                    )
                 }
             } catch (e: Exception) {
                 if (e.message?.contains("CancellationException") == true) {
@@ -158,13 +155,6 @@ class ChatViewModel : ViewModel() {
                 }
                 _error.value = "连接失败: ${e.message}"
                 
-                // 发送错误行为到监控后端
-                monitorClient?.sendErrorBehavior(
-                    userId = "user_${System.currentTimeMillis()}",
-                    errorType = "chat_error",
-                    errorMessage = e.message ?: "未知错误",
-                    screen = "ChatScreen"
-                )
             } finally {
                 _isLoading.value = false
                 currentRequestJob = null
@@ -416,6 +406,11 @@ class ChatViewModel : ViewModel() {
     fun playAudioForMessage(messageId: String, text: String) {
         if (text.isBlank()) return
         
+        // 如果正在播放，先停止当前播放
+        if (_isPlaying.value) {
+            stopAudio()
+        }
+        
         val currentContext = context
         if (currentContext == null) {
             _error.value = "播放失败: Context未初始化"
@@ -424,48 +419,74 @@ class ChatViewModel : ViewModel() {
         
         viewModelScope.launch {
             try {
-                _playingMessageId.value = messageId
+                // 设置加载状态
+                _isTTSLoading.value = true
+                _loadingTTSMessageId.value = messageId
                 _error.value = null
                 
                 // 获取用户选择的音调
                 val prefs = currentContext.getSharedPreferences("voice_settings", Context.MODE_PRIVATE)
                 val selectedVoice = prefs.getString("selected_voice", "zh-CN-XiaoxiaoNeural") ?: "zh-CN-XiaoxiaoNeural"
                 
+                // 记录TTS播放开始时间
+                val playStartTime = System.currentTimeMillis()
+                
                 // 使用TTS服务播放，使用用户选择的音调
-                val ttsService = TTSService(currentContext)
+                val ttsService = TTSService.getInstance(currentContext)
                 ttsService.textToSpeechAndPlay(
                     text = text,
                     voice = selectedVoice,
                     onPlayStart = {
+                        // 清除加载状态，设置播放状态
+                        _isTTSLoading.value = false
+                        _loadingTTSMessageId.value = null
                         _isPlaying.value = true
+                        _playingMessageId.value = messageId
                     },
                     onPlayComplete = {
                         _isPlaying.value = false
                         _playingMessageId.value = null
+                        
+                        // TTS播放完成，记录到数据库
+                        val playDuration = (System.currentTimeMillis() - playStartTime) / 1000.0
+                        logTTSInteraction(text, selectedVoice, playDuration, true, actionType = "TTS播放完成")
                     },
                     onError = { error ->
+                        _isTTSLoading.value = false
+                        _loadingTTSMessageId.value = null
                         _isPlaying.value = false
                         _playingMessageId.value = null
                         _error.value = "播放失败: $error"
+                        
+                        // TTS播放失败，记录到数据库
+                        val playDuration = (System.currentTimeMillis() - playStartTime) / 1000.0
+                        logTTSInteraction(text, selectedVoice, playDuration, false, error, "TTS播放失败")
                     }
                 )
             } catch (e: Exception) {
+                _isTTSLoading.value = false
+                _loadingTTSMessageId.value = null
                 _isPlaying.value = false
                 _playingMessageId.value = null
                 _error.value = "播放失败: ${e.message}"
+                
+                // TTS播放异常，记录到数据库
+                logTTSInteraction(text, "unknown", 0.0, false, e.message ?: "Unknown error")
             }
         }
     }
     
     
     fun stopAudio() {
+        _isTTSLoading.value = false
+        _loadingTTSMessageId.value = null
         _isPlaying.value = false
         _playingMessageId.value = null
         
         // 停止TTS播放
         val currentContext = context
         if (currentContext != null) {
-            val ttsService = TTSService(currentContext)
+            val ttsService = TTSService.getInstance(currentContext)
             ttsService.stopPlayback()
         }
     }
@@ -634,7 +655,68 @@ class ChatViewModel : ViewModel() {
      */
     private fun saveCurrentMessagesToConversation() {
         android.util.Log.d("ChatViewModel", "保存消息到历史记录: messagesCount=${_messages.value.size}")
+        if (conversationRepository == null) {
+            android.util.Log.w("ChatViewModel", "ConversationRepository为空，无法保存历史记录")
+            return
+        }
         conversationRepository?.updateCurrentConversationMessages(_messages.value)
+        android.util.Log.d("ChatViewModel", "历史记录保存完成")
+    }
+    
+    /**
+     * 记录TTS交互到数据库
+     */
+    private fun logTTSInteraction(text: String, voice: String, duration: Double, success: Boolean, errorMessage: String? = null, actionType: String = "TTS播放完成") {
+        viewModelScope.launch {
+            try {
+                val currentContext = context
+                if (currentContext == null) {
+                    android.util.Log.w("ChatViewModel", "Context为空，无法记录TTS交互")
+                    return@launch
+                }
+                
+                // 获取真实的用户ID和会话ID
+                val userId = com.llasm.nexusunified.data.UserManager.getUserId() ?: "android_user_${System.currentTimeMillis()}"
+                val sessionId = com.llasm.nexusunified.data.UserManager.getSessionId() ?: "android_session_${System.currentTimeMillis()}"
+                
+                // 构建交互内容
+                val interactionContent = "$actionType: $text (音色: $voice)"
+                val response = if (success) "${actionType}成功" else "${actionType}失败: $errorMessage"
+                
+                // 调用后端API记录交互
+                val apiService = com.llasm.nexusunified.network.NetworkModule.getApiService()
+                val requestBody = com.llasm.nexusunified.network.LogInteractionRequest(
+                    user_id = userId,
+                    interaction_type = "tts_play",
+                    content = interactionContent,
+                    response = response,
+                    session_id = sessionId,
+                    duration_seconds = duration.toInt(),
+                    success = success,
+                    error_message = errorMessage ?: ""
+                )
+                
+                val result = try {
+                    val response = apiService.logInteraction(requestBody)
+                    if (response.isSuccessful) {
+                        Result.success(response.body())
+                    } else {
+                        Result.failure(Exception("API调用失败: ${response.code()}"))
+                    }
+                } catch (e: Exception) {
+                    Result.failure(e)
+                }
+                
+                if (result.isSuccess) {
+                    android.util.Log.d("ChatViewModel", "TTS交互记录成功: $interactionContent")
+                } else {
+                    android.util.Log.w("ChatViewModel", "TTS交互记录失败: ${result.exceptionOrNull()?.message}")
+                }
+                
+            } catch (e: Exception) {
+                android.util.Log.e("ChatViewModel", "记录TTS交互异常: ${e.message}", e)
+            }
+        }
     }
     
     /**
@@ -651,6 +733,37 @@ class ChatViewModel : ViewModel() {
     fun sendStreamingMessageWithHistory(content: String) {
         sendStreamingMessage(content)
         // sendStreamingMessage内部已经会调用saveCurrentMessagesToConversation()
+    }
+    
+    /**
+     * 开始ASR识别
+     */
+    fun startASRRecognition() {
+        _isASRRecognizing.value = true
+        _asrRecognizingText.value = "正在识别中..."
+    }
+    
+    /**
+     * 更新ASR识别文本
+     */
+    fun updateASRRecognizingText(text: String) {
+        _asrRecognizingText.value = text
+    }
+    
+    /**
+     * 完成ASR识别
+     */
+    fun completeASRRecognition() {
+        _isASRRecognizing.value = false
+        _asrRecognizingText.value = ""
+    }
+    
+    /**
+     * 取消ASR识别
+     */
+    fun cancelASRRecognition() {
+        _isASRRecognizing.value = false
+        _asrRecognizingText.value = ""
     }
     
     

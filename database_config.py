@@ -42,7 +42,7 @@ CREATE_TABLES_SQL = {
     CREATE TABLE IF NOT EXISTS interactions (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id VARCHAR(255) NOT NULL COMMENT '用户ID',
-        interaction_type ENUM('text', 'voice_home', 'voice_call') NOT NULL COMMENT '交互类型',
+        interaction_type ENUM('text', 'voice_home', 'voice_call', 'tts_play') NOT NULL COMMENT '交互类型',
         content TEXT NOT NULL COMMENT '交互内容',
         response TEXT NULL COMMENT 'AI回复内容',
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '交互时间',
@@ -50,10 +50,13 @@ CREATE_TABLES_SQL = {
         duration_seconds INT NULL COMMENT '交互持续时间（秒）',
         success BOOLEAN DEFAULT TRUE COMMENT '是否成功',
         error_message TEXT NULL COMMENT '错误信息',
+        tts_play_count INT DEFAULT 0 COMMENT 'TTS播放次数',
+        last_tts_play_time TIMESTAMP NULL COMMENT '最后TTS播放时间',
         INDEX idx_user_id (user_id),
         INDEX idx_interaction_type (interaction_type),
         INDEX idx_timestamp (timestamp),
         INDEX idx_session_id (session_id),
+        INDEX idx_tts_play_count (tts_play_count),
         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='交互记录表'
     """,
@@ -108,3 +111,25 @@ DEFAULT_ADMIN = {
     'password': 'admin123',  # 实际使用时应该使用哈希
     'is_active': True
 }
+
+# 测试用户
+TEST_USERS = [
+    {
+        'user_id': 'user_001',
+        'username': 'testuser1',
+        'password': 'password123',
+        'is_active': True
+    },
+    {
+        'user_id': 'user_002',
+        'username': 'testuser2',
+        'password': 'password456',
+        'is_active': True
+    },
+    {
+        'user_id': 'user_003',
+        'username': 'testuser3',
+        'password': 'password789',
+        'is_active': True
+    }
+]

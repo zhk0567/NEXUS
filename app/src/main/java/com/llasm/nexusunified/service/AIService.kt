@@ -10,7 +10,6 @@ import org.json.JSONObject
 import org.json.JSONArray
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import com.llasm.nexusunified.network.MonitorClient
 
 /**
  * AI服务 - 直接调用DeepSeek API和火山引擎API
@@ -49,7 +48,6 @@ class AIService(private val context: Context) {
         .build()
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val monitorClient = MonitorClient(context)
     
     /**
      * 文字对话 - 调用DeepSeek API
@@ -107,13 +105,6 @@ class AIService(private val context: Context) {
                 Log.e(TAG, "DeepSeek API调用失败: ${response.code} - ${response.message}")
                 Log.e(TAG, "错误详情: $errorBody")
                 
-                // 发送失败的API指标到监控后端
-                monitorClient.sendApiMetrics(
-                    apiName = "DeepSeek API",
-                    responseTime = responseTime,
-                    success = false,
-                    errorMessage = errorBody
-                )
                 
                 throw IOException("DeepSeek API调用失败: ${response.code} - ${response.message}\n详情: $errorBody")
             }
@@ -126,11 +117,6 @@ class AIService(private val context: Context) {
             Log.d(TAG, "DeepSeek API响应: $responseBody")
             
             // 发送成功的API指标到监控后端
-            monitorClient.sendApiMetrics(
-                apiName = "DeepSeek API",
-                responseTime = responseTime,
-                success = true
-            )
             
             val jsonResponse = JSONObject(responseBody)
             val choices = jsonResponse.getJSONArray("choices")
