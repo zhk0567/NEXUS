@@ -19,7 +19,7 @@ DATABASE_CONFIG = {
     'write_timeout': 30
 }
 
-# 数据库表结构
+# 数据库表结构（优化后 - 移除未使用字段）
 CREATE_TABLES_SQL = {
     'users': """
     CREATE TABLE IF NOT EXISTS users (
@@ -28,9 +28,7 @@ CREATE_TABLES_SQL = {
         username VARCHAR(100) NOT NULL COMMENT '用户名',
         password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
         last_login_at TIMESTAMP NULL COMMENT '最后登录时间',
-        last_logout_at TIMESTAMP NULL COMMENT '最后登出时间',
         is_active BOOLEAN DEFAULT TRUE COMMENT '是否激活',
         INDEX idx_user_id (user_id),
         INDEX idx_username (username),
@@ -50,13 +48,10 @@ CREATE_TABLES_SQL = {
         duration_seconds INT NULL COMMENT '交互持续时间（秒）',
         success BOOLEAN DEFAULT TRUE COMMENT '是否成功',
         error_message TEXT NULL COMMENT '错误信息',
-        tts_play_count INT DEFAULT 0 COMMENT 'TTS播放次数',
-        last_tts_play_time TIMESTAMP NULL COMMENT '最后TTS播放时间',
         INDEX idx_user_id (user_id),
         INDEX idx_interaction_type (interaction_type),
         INDEX idx_timestamp (timestamp),
         INDEX idx_session_id (session_id),
-        INDEX idx_tts_play_count (tts_play_count),
         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='交互记录表'
     """,
@@ -67,11 +62,6 @@ CREATE_TABLES_SQL = {
         user_id VARCHAR(255) NOT NULL COMMENT '用户ID',
         session_id VARCHAR(255) UNIQUE NOT NULL COMMENT '会话ID',
         login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '登录时间',
-        logout_time TIMESTAMP NULL COMMENT '登出时间',
-        duration_seconds INT NULL COMMENT '会话持续时间（秒）',
-        device_info TEXT NULL COMMENT '设备信息',
-        ip_address VARCHAR(45) NULL COMMENT 'IP地址',
-        user_agent TEXT NULL COMMENT '用户代理',
         INDEX idx_user_id (user_id),
         INDEX idx_session_id (session_id),
         INDEX idx_login_time (login_time),
@@ -85,15 +75,80 @@ CREATE_TABLES_SQL = {
         log_level ENUM('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL') NOT NULL COMMENT '日志级别',
         service_name VARCHAR(50) NOT NULL COMMENT '服务名称',
         message TEXT NOT NULL COMMENT '日志消息',
-        details JSON NULL COMMENT '详细信息',
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '时间戳',
-        user_id VARCHAR(255) NULL COMMENT '相关用户ID',
-        session_id VARCHAR(255) NULL COMMENT '相关会话ID',
         INDEX idx_log_level (log_level),
         INDEX idx_service_name (service_name),
-        INDEX idx_timestamp (timestamp),
-        INDEX idx_user_id (user_id)
+        INDEX idx_timestamp (timestamp)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统日志表'
+    """,
+    
+    'reading_progress': """
+    CREATE TABLE IF NOT EXISTS reading_progress (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL COMMENT '用户ID',
+        story_id VARCHAR(255) NOT NULL COMMENT '故事ID',
+        story_title VARCHAR(500) NOT NULL COMMENT '故事标题',
+        current_position INT DEFAULT 0 COMMENT '当前阅读位置（字符数）',
+        total_length INT DEFAULT 0 COMMENT '故事总长度（字符数）',
+        reading_progress DECIMAL(5,2) DEFAULT 0.00 COMMENT '阅读进度百分比',
+        is_completed BOOLEAN DEFAULT FALSE COMMENT '是否已完成阅读',
+        start_time TIMESTAMP NULL COMMENT '开始阅读时间',
+        last_read_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后阅读时间',
+        completion_time TIMESTAMP NULL COMMENT '完成阅读时间',
+        reading_duration_seconds INT DEFAULT 0 COMMENT '总阅读时长（秒）',
+        session_id VARCHAR(255) NULL COMMENT '阅读会话ID',
+        device_info VARCHAR(500) NULL COMMENT '设备信息',
+        INDEX idx_user_id (user_id),
+        INDEX idx_story_id (story_id),
+        INDEX idx_user_story (user_id, story_id),
+        INDEX idx_is_completed (is_completed),
+        INDEX idx_last_read_time (last_read_time),
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='阅读进度表'
+    """,
+    
+    
+    'story_interactions': """
+    CREATE TABLE IF NOT EXISTS story_interactions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL COMMENT '用户ID',
+        story_id VARCHAR(255) NOT NULL COMMENT '故事ID',
+        interaction_type ENUM(
+            'start_reading', 'pause_reading', 'resume_reading', 'complete_reading',
+            'audio_play', 'audio_pause', 'audio_stop', 'audio_seek',
+            'scroll_start', 'scroll_pause', 'scroll_resume',
+            'bookmark', 'share', 'rate', 'view_details', 'filter_change',
+            'bulk_action', 'admin_operation'
+        ) NOT NULL COMMENT '交互类型',
+        interaction_data JSON NULL COMMENT '交互数据（如位置、进度、操作参数等）',
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '交互时间',
+        device_info VARCHAR(500) NULL COMMENT '设备信息',
+        app_version VARCHAR(50) NULL COMMENT '应用版本',
+        INDEX idx_user_id (user_id),
+        INDEX idx_story_id (story_id),
+        INDEX idx_interaction_type (interaction_type),
+        INDEX idx_timestamp (timestamp),
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='故事交互记录表'
+    """,
+    
+    'admin_operations': """
+    CREATE TABLE IF NOT EXISTS admin_operations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        admin_user_id VARCHAR(255) NOT NULL COMMENT '管理员用户ID',
+        target_user_id VARCHAR(255) NOT NULL COMMENT '目标用户ID',
+        story_id VARCHAR(255) NOT NULL COMMENT '故事ID',
+        operation_type VARCHAR(50) NOT NULL COMMENT '操作类型',
+        operation_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+        details TEXT NULL COMMENT '操作详情',
+        INDEX idx_admin_user_id (admin_user_id),
+        INDEX idx_target_user_id (target_user_id),
+        INDEX idx_story_id (story_id),
+        INDEX idx_operation_type (operation_type),
+        INDEX idx_operation_time (operation_time),
+        FOREIGN KEY (admin_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY (target_user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='管理员操作日志表'
     """
 }
 

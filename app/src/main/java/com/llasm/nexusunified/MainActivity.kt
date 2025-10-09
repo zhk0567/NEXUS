@@ -8,18 +8,33 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.*
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.llasm.nexusunified.ui.ChatScreen
 import com.llasm.nexusunified.ui.theme.NEXUSUnifiedTheme
 import com.llasm.nexusunified.viewmodel.ChatViewModel
@@ -27,38 +42,16 @@ import com.llasm.nexusunified.data.UserManager
 import com.llasm.nexusunified.data.UserData
 import com.llasm.nexusunified.config.ServerConfig
 import com.llasm.nexusunified.ui.SettingsManager
-import androidx.compose.material3.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.net.HttpURLConnection
 import java.net.URL
 import java.io.OutputStreamWriter
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import org.json.JSONObject
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
-// import com.llasm.nexusunified.controller.SyncController // 暂时禁用同步功能
-import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
     
@@ -175,15 +168,17 @@ fun MainScreen(
             },
             onLoginSuccess = {
                 showLoginDialog = false
+                // 登录成功后刷新对话数据
+                chatViewModel.refreshConversationData()
             }
         )
     } else {
         // 已登录，显示主界面
-        ChatScreen(
-            onVoiceCallClick = { 
+    ChatScreen(
+        onVoiceCallClick = { 
                 // 启动电话模式Activity (Compose版本)
                 val intent = Intent(context, VoiceCallComposeActivity::class.java)
-                context.startActivity(intent)
+            context.startActivity(intent)
             },
             viewModel = chatViewModel,
             onShowLoginDialog = { showLoginDialog = true }
@@ -270,6 +265,10 @@ fun LoginDialog(
     var errorMessage by remember { mutableStateOf("") }
     var showSuccessMessage by remember { mutableStateOf(false) }
     
+    // 焦点请求器
+    val passwordFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    
     // 获取当前字体样式
     val fontStyle = SettingsManager.getFontStyle()
     
@@ -302,7 +301,13 @@ fun LoginDialog(
                     value = password,
                     onValueChange = { password = it },
                     label = { Text("密码") },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(passwordFocusRequester)
+                        .clickable {
+                            passwordFocusRequester.requestFocus()
+                            keyboardController?.show()
+                        },
                     singleLine = true,
                     visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),

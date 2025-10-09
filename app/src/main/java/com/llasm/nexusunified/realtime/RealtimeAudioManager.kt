@@ -20,7 +20,8 @@ import java.nio.ByteOrder
 class RealtimeAudioManager(
     private val context: Context,
     private val onAudioData: (ByteArray) -> Unit,
-    private val onError: (String) -> Unit
+    private val onError: (String) -> Unit,
+    private val onPlaybackComplete: (() -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "RealtimeAudioManager"
@@ -273,6 +274,7 @@ class RealtimeAudioManager(
                     isPlaying = false
                     audioTrack?.stop()
                     Log.d(TAG, "音频播放完成")
+                    onPlaybackComplete?.invoke()
                 }
             }
             

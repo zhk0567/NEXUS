@@ -14,7 +14,10 @@ class TTSService(private val context: Context) {
     
     private var mediaPlayer: MediaPlayer? = null
     private var isPlaying = false
+    private var isPaused = false
     private var playbackJob: Job? = null
+    private var progressUpdateJob: Job? = null
+    private var onProgressUpdate: (currentPosition: Int, duration: Int) -> Unit = { _, _ -> }
     
     /**
      * 播放预录制的故事音频
@@ -24,13 +27,17 @@ class TTSService(private val context: Context) {
         storyText: String,
         onPlayStart: () -> Unit = {},
         onPlayComplete: () -> Unit = {},
-        onError: (String) -> Unit = {}
+        onError: (String) -> Unit = {},
+        onProgressUpdate: (currentPosition: Int, duration: Int) -> Unit = { _, _ -> }
     ) {
         try {
             Log.d(TAG, "开始播放故事音频: $storyId")
             
-            if (isPlaying) {
-                Log.w(TAG, "音频正在播放中，停止当前播放")
+            // 保存进度更新回调
+            this.onProgressUpdate = onProgressUpdate
+            
+            if (isPlaying || isPaused) {
+                Log.w(TAG, "音频正在播放或暂停中，停止当前播放")
                 stopPlayback()
             }
             
@@ -60,29 +67,37 @@ class TTSService(private val context: Context) {
             // 创建MediaPlayer并播放
             mediaPlayer = MediaPlayer().apply {
                 setDataSource(tempFile.absolutePath)
-                setOnPreparedListener { mediaPlayer ->
-                    Log.d(TAG, "音频准备完成，开始播放")
-                    this@TTSService.isPlaying = true
-                    onPlayStart()
-                    start()
-                }
-                setOnCompletionListener { mediaPlayer ->
-                    Log.d(TAG, "音频播放完成")
-                    this@TTSService.isPlaying = false
-                    onPlayComplete()
-                    cleanup()
-                    // 删除临时文件
-                    tempFile.delete()
-                }
-                setOnErrorListener { mediaPlayer, what, extra ->
-                    Log.e(TAG, "音频播放错误: what=$what, extra=$extra")
-                    this@TTSService.isPlaying = false
-                    onError("音频播放失败，请检查音频文件格式")
-                    cleanup()
-                    // 删除临时文件
-                    tempFile.delete()
-                    true
-                }
+                 setOnPreparedListener { mediaPlayer ->
+                     Log.d(TAG, "音频准备完成，开始播放")
+                     this@TTSService.isPlaying = true
+                     this@TTSService.isPaused = false
+                     onPlayStart()
+                     start()
+                     
+                     // 启动进度更新协程
+                     startProgressUpdates()
+                 }
+                 setOnCompletionListener { mediaPlayer ->
+                     Log.d(TAG, "音频播放完成")
+                     this@TTSService.isPlaying = false
+                     this@TTSService.isPaused = false
+                     stopProgressUpdates()
+                     onPlayComplete()
+                     cleanup()
+                     // 删除临时文件
+                     tempFile.delete()
+                 }
+                 setOnErrorListener { mediaPlayer, what, extra ->
+                     Log.e(TAG, "音频播放错误: what=$what, extra=$extra")
+                     this@TTSService.isPlaying = false
+                     this@TTSService.isPaused = false
+                     stopProgressUpdates()
+                     onError("音频播放失败，请检查音频文件格式")
+                     cleanup()
+                     // 删除临时文件
+                     tempFile.delete()
+                     true
+                 }
                 prepareAsync()
             }
             
@@ -98,8 +113,15 @@ class TTSService(private val context: Context) {
      */
     private fun loadPreRecordedAudio(storyId: String): ByteArray? {
         return try {
-            val assetPath = "story_audio/$storyId.mp3"
-            Log.d(TAG, "尝试加载预录制音频文件: $assetPath")
+            // 将2025年的日期转换为2024年，因为音频文件是2024年格式
+            val audioFileName = if (storyId.startsWith("2025-01-")) {
+                storyId.replace("2025-01-", "2024-01-")
+            } else {
+                storyId
+            }
+            
+            val assetPath = "story_audio/$audioFileName.mp3"
+            Log.d(TAG, "尝试加载预录制音频文件: $assetPath (原始ID: $storyId)")
             context.assets.open(assetPath).readBytes()
         } catch (e: Exception) {
             Log.w(TAG, "加载预录制音频文件失败: $storyId", e)
@@ -123,17 +145,79 @@ class TTSService(private val context: Context) {
     }
     
     /**
+     * 启动进度更新协程
+     */
+    private fun startProgressUpdates() {
+        stopProgressUpdates() // 先停止之前的更新
+        progressUpdateJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isPlaying && !isPaused) {
+                try {
+                    val currentPosition = mediaPlayer?.currentPosition ?: 0
+                    val duration = mediaPlayer?.duration ?: 0
+                    onProgressUpdate(currentPosition, duration)
+                    delay(100) // 每100ms更新一次
+                } catch (e: Exception) {
+                    Log.e(TAG, "进度更新失败", e)
+                    break
+                }
+            }
+        }
+    }
+    
+    /**
+     * 停止进度更新协程
+     */
+    private fun stopProgressUpdates() {
+        progressUpdateJob?.cancel()
+        progressUpdateJob = null
+    }
+    
+    /**
+     * 暂停播放
+     */
+    fun pausePlayback() {
+        try {
+            if (isPlaying && !isPaused) {
+                Log.d(TAG, "暂停音频播放")
+                mediaPlayer?.pause()
+                isPaused = true
+                stopProgressUpdates()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "暂停播放失败", e)
+        }
+    }
+    
+    /**
+     * 恢复播放
+     */
+    fun resumePlayback() {
+        try {
+            if (isPaused) {
+                Log.d(TAG, "恢复音频播放")
+                mediaPlayer?.start()
+                isPaused = false
+                startProgressUpdates()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "恢复播放失败", e)
+        }
+    }
+    
+    /**
      * 停止播放
      */
     fun stopPlayback() {
         try {
             playbackJob?.cancel()
             playbackJob = null
+            stopProgressUpdates()
             
-            if (isPlaying) {
+            if (isPlaying || isPaused) {
                 Log.d(TAG, "停止音频播放")
                 mediaPlayer?.stop()
                 isPlaying = false
+                isPaused = false
             }
             cleanup()
         } catch (e: Exception) {
@@ -171,6 +255,11 @@ class TTSService(private val context: Context) {
     fun isPlaying(): Boolean = isPlaying
     
     /**
+     * 检查是否暂停
+     */
+    fun isPaused(): Boolean = isPaused
+    
+    /**
      * 检查预录制音频文件是否存在
      */
     fun isAudioFileExists(storyId: String): Boolean {
@@ -199,5 +288,19 @@ class TTSService(private val context: Context) {
             Log.e(TAG, "获取音频文件列表失败", e)
             emptyList()
         }
+    }
+    
+    /**
+     * 播放预录制的故事音频（支持阅读进度管理）
+     */
+    fun playStoryAudioWithProgress(
+        storyId: String,
+        storyText: String,
+        onPlayStart: () -> Unit = {},
+        onPlayComplete: () -> Unit = {},
+        onError: (String) -> Unit = {},
+        onProgressUpdate: (currentPosition: Int, duration: Int) -> Unit = { _, _ -> }
+    ) {
+        playStoryAudio(storyId, storyText, onPlayStart, onPlayComplete, onError, onProgressUpdate)
     }
 }

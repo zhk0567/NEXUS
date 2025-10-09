@@ -10,6 +10,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Person
@@ -68,7 +70,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -253,33 +254,25 @@ fun ChatScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                     // 新话题按钮
-                     IconButton(
+                     // 新话题按钮 - 深色主题样式
+                     Button(
                          onClick = { 
                              // 开启新话题 - 开始新对话
                              viewModel.startNewConversation()
                              focusManager.clearFocus()
-                         }
+                         },
+                         colors = ButtonDefaults.buttonColors(
+                             containerColor = themeColors.surface,
+                             contentColor = themeColors.textPrimary
+                         ),
+                         shape = RoundedCornerShape(8.dp),
+                         modifier = Modifier.height(36.dp),
+                         border = BorderStroke(1.dp, themeColors.cardBorder)
                      ) {
-                         Icon(
-                             imageVector = Icons.Default.Add,
-                             contentDescription = "新话题",
-                                tint = themeColors.onSurface,
-                                modifier = Modifier.size(fontStyle.iconSize.dp)
-                            )
-                        }
-                        
-                        // 登录按钮
-                     IconButton(
-                         onClick = { 
-                                showLoginDialog = true
-                         }
-                     ) {
-                         Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = "登录",
-                                tint = themeColors.onSurface,
-                                modifier = Modifier.size(fontStyle.iconSize.dp)
+                         Text(
+                             text = "新话题",
+                             style = fontStyle.bodyMedium,
+                             fontWeight = FontWeight.Medium
                          )
                      }
                  }
@@ -570,6 +563,11 @@ fun ChatScreen(
             onBackClick = { 
                 showAccountSettings = false
                 showSettingsPage = true
+            },
+            onShowLoginDialog = {
+                showAccountSettings = false
+                showSettingsPage = false
+                onShowLoginDialog?.invoke()
             }
         )
     }
@@ -2024,24 +2022,11 @@ fun HistoryDrawer(
         android.util.Log.d("HistoryDrawer", "isVisible: $isVisible, animationStarted: $animationStarted, offsetX: $offsetX, drawerWidth: ${drawerWidth.value}")
     }
     
-    // 背景遮罩淡入淡出动画
-    val backgroundAlpha by animateFloatAsState(
-        targetValue = if (isVisible && animationStarted) 0.5f else 0f,
-        animationSpec = tween(
-            durationMillis = 300,
-            easing = LinearEasing
-        ),
-        label = "backgroundAlpha"
-    )
-    
-    // 背景遮罩
+    // 抽屉容器
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = backgroundAlpha))
-            .clickable { onDismiss() }
+        modifier = Modifier.fillMaxSize()
     ) {
-        // 抽屉内容 - 简化版本
+        // 抽屉内容
         Card(
             modifier = Modifier
                 .width(drawerWidth)
@@ -2164,6 +2149,19 @@ fun HistoryDrawer(
                 }
             }
         }
+        
+        // 右侧点击区域 - 使用pointerInput避免显示条条
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width((screenWidth - drawerWidth))
+                .offset(x = drawerWidth)
+                .pointerInput(Unit) {
+                    detectTapGestures {
+                        onDismiss()
+                    }
+                }
+        )
     }
 }
 

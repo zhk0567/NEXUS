@@ -10,6 +10,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import com.llasm.nexusunified.config.ServerConfig
 
 /**
  * 资源管理器 - 负责自动上传和下载资源
@@ -18,7 +19,6 @@ class ResourceManager(private val context: Context) {
     
     companion object {
         private const val TAG = "ResourceManager"
-        private const val BASE_URL = "http://10.0.2.2:5000/"
         private const val UPLOAD_ENDPOINT = "upload"
         private const val DOWNLOAD_ENDPOINT = "download"
         private const val SYNC_ENDPOINT = "sync"
@@ -207,7 +207,7 @@ class ResourceManager(private val context: Context) {
     private suspend fun getServerResourceList(): List<ResourceInfo> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url("$BASE_URL$SYNC_ENDPOINT/list")
+                .url(ServerConfig.getApiUrl(SYNC_ENDPOINT + "/list"))
                 .get()
                 .build()
             
@@ -267,7 +267,7 @@ class ResourceManager(private val context: Context) {
                 .build()
             
             val request = Request.Builder()
-                .url("$BASE_URL$UPLOAD_ENDPOINT")
+                .url(ServerConfig.getApiUrl(UPLOAD_ENDPOINT))
                 .post(requestBody)
                 .build()
             
@@ -292,7 +292,7 @@ class ResourceManager(private val context: Context) {
     private suspend fun downloadSingleResource(resource: ResourceInfo): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url("$BASE_URL$DOWNLOAD_ENDPOINT/${resource.id}")
+                .url(ServerConfig.getApiUrl("$DOWNLOAD_ENDPOINT/${resource.id}"))
                 .get()
                 .build()
             

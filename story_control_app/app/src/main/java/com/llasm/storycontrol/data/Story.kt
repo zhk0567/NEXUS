@@ -10,8 +10,19 @@ data class Story(
     val title: String,
     val content: String,
     val date: LocalDate,
-    val category: String = "温馨故事"
+    val category: String = "温馨故事",
+    val isCompleted: Boolean = false,
+    val completedAt: Long? = null,
+    val readingMode: ReadingMode = ReadingMode.TEXT
 )
+
+/**
+ * 阅读模式枚举
+ */
+enum class ReadingMode(val displayName: String) {
+    AUDIO("音频阅读"),
+    TEXT("文字阅读")
+}
 
 /**
  * 故事类别

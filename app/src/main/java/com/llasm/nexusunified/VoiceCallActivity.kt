@@ -85,15 +85,7 @@ class VoiceCallActivity : Activity() {
     // 会话ID
     private val sessionId = "voice_call_${System.currentTimeMillis()}"
     
-    // 去重机制
-    private val recentUserInputs = mutableSetOf<String>()
-    private val recentAIOutputs = mutableSetOf<String>()
-    private val maxRecentSize = 10
-    
-    // 防止重复记录的时间戳
-    private var lastUserInputTime = 0L
-    private var lastAIOutputTime = 0L
-    private val minIntervalMs = 500L // 最小间隔0.5秒，降低严格程度
+    // 已移除重复检测机制
     
     // 累积用户输入文本，避免分片记录
     private var accumulatedUserInput = ""
@@ -237,6 +229,9 @@ class VoiceCallActivity : Activity() {
                     runOnUiThread {
                         showLogMessage("❌ 音频错误: $error")
                     }
+                },
+                onPlaybackComplete = {
+                    // 播放完成回调（暂时不使用）
                 }
             )
 
@@ -499,7 +494,7 @@ class VoiceCallActivity : Activity() {
                 showLogMessage("🤖 正在获取AI回复...")
                 
                 // 构建请求 - 使用用户实际说的话
-                val userMessage = pendingUserInput ?: getRecentUserInput() ?: "用户语音输入"
+                val userMessage = pendingUserInput ?: "用户语音输入"
                 // 获取真实的用户ID
                 val userId = com.llasm.nexusunified.data.UserManager.getUserId() ?: ServerConfig.ANDROID_USER_ID
                 
@@ -534,16 +529,9 @@ class VoiceCallActivity : Activity() {
                                         recordSingleInteraction(pendingUserInput!!, aiResponse, true)
                                         pendingUserInput = null
                                     } else {
-                                        // 没有待配对用户输入，尝试获取最近的用户输入
-                                        val recentUserInput = getRecentUserInput()
-                                        if (recentUserInput != null) {
-                                            Log.d(TAG, "🔄 使用最近用户输入配对: 用户='$recentUserInput', AI='$aiResponse'")
-                                            recordSingleInteraction(recentUserInput, aiResponse, true)
-                                        } else {
-                                            // 没有可配对的用户输入，单独记录AI回复
-                                            Log.d(TAG, "📝 单独记录AI回复: $aiResponse")
-                                            recordSingleInteraction("", aiResponse, false)
-                                        }
+                                        // 没有待配对用户输入，单独记录AI回复
+                                        Log.d(TAG, "📝 单独记录AI回复: $aiResponse")
+                                        recordSingleInteraction("", aiResponse, false)
                                     }
                                 }
                                 
@@ -733,49 +721,9 @@ class VoiceCallActivity : Activity() {
     private fun logInteractionToDatabase(content: String, response: String, isUser: Boolean) {
         scope.launch(Dispatchers.IO) {
             try {
-                val textToCheck = if (isUser) content else response
-                val recentSet = if (isUser) recentUserInputs else recentAIOutputs
-                val currentTime = System.currentTimeMillis()
-                val lastTime = if (isUser) lastUserInputTime else lastAIOutputTime
+                // 直接记录对话，不进行重复检测
+                Log.d(TAG, "📝 记录对话: ${if (isUser) content else response}")
                 
-                // 时间间隔检查：避免短时间内重复记录（只对相同内容生效）
-                if (currentTime - lastTime < minIntervalMs && recentSet.contains(textToCheck)) {
-                    Log.d(TAG, "⚠️ 跳过时间间隔过短的重复记录: $textToCheck (间隔: ${currentTime - lastTime}ms)")
-                    return@launch
-                }
-                
-                // 去重检查：避免记录重复的短句
-                if (textToCheck.isNotEmpty() && textToCheck.length > 1) {
-                    // 检查是否已经记录过相同的内容
-                    if (recentSet.contains(textToCheck)) {
-                        Log.d(TAG, "⚠️ 跳过重复记录: $textToCheck")
-                        return@launch
-                    }
-                    
-                    // 添加到最近记录集合
-                    recentSet.add(textToCheck)
-                    
-                    // 限制集合大小
-                    if (recentSet.size > maxRecentSize) {
-                        val iterator = recentSet.iterator()
-                        while (iterator.hasNext() && recentSet.size > maxRecentSize) {
-                            iterator.next()
-                            iterator.remove()
-                        }
-                    }
-                    
-                    // 更新时间戳
-                    if (isUser) {
-                        lastUserInputTime = currentTime
-                    } else {
-                        lastAIOutputTime = currentTime
-                    }
-                } else {
-                    Log.d(TAG, "⚠️ 跳过过短的内容: $textToCheck")
-                    return@launch
-                }
-                
-                // 简化记录逻辑：直接记录到数据库
                 if (isUser) {
                     // 用户输入：单独记录
                     Log.d(TAG, "📝 记录用户输入: $content")
@@ -792,16 +740,7 @@ class VoiceCallActivity : Activity() {
         }
     }
     
-    /**
-     * 获取最近的用户输入
-     */
-    private fun getRecentUserInput(): String? {
-        return if (recentUserInputs.isNotEmpty()) {
-            recentUserInputs.lastOrNull()
-        } else {
-            null
-        }
-    }
+    // 已移除getRecentUserInput函数
     
     /**
      * 记录单个交互到数据库

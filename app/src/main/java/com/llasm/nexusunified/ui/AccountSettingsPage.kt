@@ -29,7 +29,8 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountSettingsPage(
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onShowLoginDialog: (() -> Unit)? = null
 ) {
     // 获取主题和字体样式
     val isDarkMode by SettingsManager.isDarkMode.collectAsState()
@@ -159,6 +160,23 @@ fun AccountSettingsPage(
                             style = fontStyle.bodyMedium,
                             color = themeColors.textSecondary.copy(alpha = 0.6f)
                         )
+                        
+                        // 登录按钮
+                        if (onShowLoginDialog != null) {
+                            Button(
+                                onClick = onShowLoginDialog,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = themeColors.primary
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "立即登录",
+                                    color = Color.White,
+                                    style = fontStyle.bodyMedium
+                                )
+                            }
+                        }
                     }
                 }
             }

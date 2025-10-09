@@ -6,6 +6,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.llasm.nexusunified.data.Conversation
 import com.llasm.nexusunified.data.ChatMessage
+import com.llasm.nexusunified.data.UserManager
 import java.util.Date
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,8 +17,6 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class ConversationRepository(private val context: Context) {
     
-    private val sharedPreferences: SharedPreferences = 
-        context.getSharedPreferences("conversations", Context.MODE_PRIVATE)
     private val gson = Gson()
     
     private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
@@ -26,23 +25,53 @@ class ConversationRepository(private val context: Context) {
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()
     
+    // 当前用户ID，用于隔离不同用户的数据
+    private var currentUserId: String? = null
+    
     init {
-        loadConversations()
+        // 监听用户登录状态变化
+        updateCurrentUser()
+    }
+    
+    /**
+     * 更新当前用户ID并重新加载对话
+     */
+    private fun updateCurrentUser() {
+        val userId = UserManager.getUserId()
+        if (userId != currentUserId) {
+            currentUserId = userId
+            loadConversations()
+        }
+    }
+    
+    /**
+     * 获取当前用户的SharedPreferences
+     */
+    private fun getUserSharedPreferences(): SharedPreferences {
+        val userId = currentUserId ?: "anonymous"
+        return context.getSharedPreferences("conversations_$userId", Context.MODE_PRIVATE)
     }
     
     /**
      * 加载所有对话
      */
     private fun loadConversations() {
+        updateCurrentUser() // 确保用户ID是最新的
+        val sharedPreferences = getUserSharedPreferences()
         val conversationsJson = sharedPreferences.getString("conversations", null)
         if (conversationsJson != null) {
             try {
                 val type = object : TypeToken<List<Conversation>>() {}.type
                 val conversations = gson.fromJson<List<Conversation>>(conversationsJson, type)
                 _conversations.value = conversations ?: emptyList()
+                android.util.Log.d("ConversationRepository", "加载用户 ${currentUserId} 的对话: ${_conversations.value.size} 条")
             } catch (e: Exception) {
                 _conversations.value = emptyList()
+                android.util.Log.e("ConversationRepository", "加载对话失败: ${e.message}")
             }
+        } else {
+            _conversations.value = emptyList()
+            android.util.Log.d("ConversationRepository", "用户 ${currentUserId} 没有历史对话")
         }
     }
     
@@ -50,11 +79,13 @@ class ConversationRepository(private val context: Context) {
      * 保存对话列表
      */
     private fun saveConversations() {
+        updateCurrentUser() // 确保用户ID是最新的
+        val sharedPreferences = getUserSharedPreferences()
         val conversationsJson = gson.toJson(_conversations.value)
         val success = sharedPreferences.edit()
             .putString("conversations", conversationsJson)
             .commit()
-        android.util.Log.d("ConversationRepository", "保存对话到SharedPreferences: ${if (success) "成功" else "失败"}")
+        android.util.Log.d("ConversationRepository", "保存用户 ${currentUserId} 的对话到SharedPreferences: ${if (success) "成功" else "失败"}")
     }
     
     /**
@@ -195,5 +226,12 @@ class ConversationRepository(private val context: Context) {
      */
     fun getConversationMessages(conversationId: String): List<ChatMessage> {
         return _conversations.value.find { it.id == conversationId }?.messages ?: emptyList()
+    }
+    
+    /**
+     * 刷新用户数据（在用户登录/登出时调用）
+     */
+    fun refreshUserData() {
+        updateCurrentUser()
     }
 }

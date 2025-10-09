@@ -66,6 +66,8 @@ class VoiceCallComposeActivity : ComponentActivity() {
     
     // 音频处理状态
     private var currentAudioData: ByteArray? = null
+    private var isAudioPlaying by mutableStateOf(false)
+    private var audioSpectrumData by mutableStateOf<List<Float>>(emptyList())
     
     // 录音时间记录
     private var recordingStartTime = 0L
@@ -83,18 +85,39 @@ class VoiceCallComposeActivity : ComponentActivity() {
     // 会话ID
     private val sessionId = "voice_call_${System.currentTimeMillis()}"
     
-    // 去重机制
-    private val recentUserInputs = mutableSetOf<String>()
-    private val recentAIOutputs = mutableSetOf<String>()
-    private val maxRecentSize = 10
-    
-    // 防止重复记录的时间戳
-    private var lastUserInputTime = 0L
-    private var lastAIOutputTime = 0L
-    private val minIntervalMs = 500L // 最小间隔0.5秒，降低严格程度
+    // 已移除重复检测机制
     
     // 累积用户输入文本，避免分片记录
     private var accumulatedUserInput = ""
+    
+    // 音频频谱数据生成
+    private fun generateAudioSpectrumData(): List<Float> {
+        // 返回真实的音频频谱数据，如果没有则返回空列表
+        // 这个函数现在由RealtimeAudioManager的onAudioData回调来更新audioSpectrumData
+        return audioSpectrumData
+    }
+    
+    // 将音频数据转换为频谱数据
+    private fun convertAudioToSpectrum(audioData: ByteArray): List<Float> {
+        if (audioData.isEmpty()) return emptyList()
+        
+        // 将字节数组转换为Float数组
+        val audioFloats = audioData.map { (it.toFloat() / 128f).coerceIn(-1f, 1f) }
+        
+        // 计算RMS值作为音频强度
+        val rms = kotlin.math.sqrt(audioFloats.map { it * it }.average().toFloat())
+        
+        // 生成64个频谱柱（与Python脚本一致）
+        val spectrumBins = 64
+        val step = audioFloats.size / spectrumBins
+        
+        return (0 until spectrumBins).map { i ->
+            val startIdx = i * step
+            val endIdx = ((i + 1) * step).coerceAtMost(audioFloats.size)
+            val avgValue = audioFloats.subList(startIdx, endIdx).average().toFloat()
+            avgValue.coerceIn(0f, 1f)
+        }
+    }
     
     // 对话配对机制
     private var pendingUserInput: String? = null
@@ -118,6 +141,15 @@ class VoiceCallComposeActivity : ComponentActivity() {
         initAIService()
         requestPermissions()
         
+        // 启动音频频谱数据更新协程
+        scope.launch {
+            while (true) {
+                // 音频频谱数据现在由RealtimeAudioManager的onAudioData回调直接更新
+                // 这里不再需要生成模拟数据
+                delay(50) // 20fps更新频率
+            }
+        }
+        
         setContent {
             val context = LocalContext.current
             val settingsManager = remember { SettingsManager }
@@ -139,7 +171,9 @@ class VoiceCallComposeActivity : ComponentActivity() {
                        onEndCall = { stopRecording() }, // 停止录音作为结束通话
                        onSettings = { /* 设置功能 */ },
                        themeColors = themeColors,
-                       fontStyle = fontStyle
+                       fontStyle = fontStyle,
+                       audioSpectrumData = audioSpectrumData,
+                       isAudioPlaying = isAudioPlaying
                    )
                 }
             }
@@ -189,7 +223,14 @@ class VoiceCallComposeActivity : ComponentActivity() {
                     onMessage = { message -> handleWebSocketMessage(message) },
                     onAudioData = { audioData -> 
                         // 播放AI回复的音频
+                        isAudioPlaying = true
+                        Log.d(TAG, "🎵 开始播放AI音频，启动频谱动画")
                         audioManager?.playAudio(audioData)
+                        
+                        // 将音频数据转换为频谱数据
+                        val spectrumData = convertAudioToSpectrum(audioData)
+                        audioSpectrumData = spectrumData
+                        Log.d(TAG, "🎵 更新AI音频频谱数据: ${spectrumData.size} 个数据点")
                     },
                     onError = { error -> handleWebSocketError(error) },
                     onConnected = { 
@@ -229,7 +270,11 @@ class VoiceCallComposeActivity : ComponentActivity() {
                     onAudioData = { _ ->
                         // 音频数据回调（暂时不使用，我们通过getCurrentAudioData获取）
                     },
-                    onError = { error -> handleAudioError(error) }
+                    onError = { error -> handleAudioError(error) },
+                    onPlaybackComplete = {
+                        isAudioPlaying = false
+                        Log.d(TAG, "音频播放完成，停止频谱动画")
+                    }
                 )
                 
                 // 连接WebSocket
@@ -349,6 +394,11 @@ class VoiceCallComposeActivity : ComponentActivity() {
                     // 获取录音数据并发送
                     val audioData = audioManager?.getCurrentAudioData()
                     if (audioData != null) {
+                        // 将录音数据转换为频谱数据
+                        val spectrumData = convertAudioToSpectrum(audioData)
+                        audioSpectrumData = spectrumData
+                        Log.d(TAG, "🎵 更新录音频谱数据: ${spectrumData.size} 个数据点")
+                        
                         sendAudioToAI(audioData)
                     } else {
                         Log.e(TAG, "获取录音数据失败")
@@ -427,27 +477,8 @@ class VoiceCallComposeActivity : ComponentActivity() {
             try {
                 val currentTime = System.currentTimeMillis()
                 
-                // 防止重复记录
-                when (role) {
-                    "user" -> {
-                        if (currentTime - lastUserInputTime < minIntervalMs) return@launch
-                        if (recentUserInputs.contains(text)) return@launch
-                        lastUserInputTime = currentTime
-                        recentUserInputs.add(text)
-                        if (recentUserInputs.size > maxRecentSize) {
-                            recentUserInputs.remove(recentUserInputs.first())
-                        }
-                    }
-                    "assistant" -> {
-                        if (currentTime - lastAIOutputTime < minIntervalMs) return@launch
-                        if (recentAIOutputs.contains(text)) return@launch
-                        lastAIOutputTime = currentTime
-                        recentAIOutputs.add(text)
-                        if (recentAIOutputs.size > maxRecentSize) {
-                            recentAIOutputs.remove(recentAIOutputs.first())
-                        }
-                    }
-                }
+                // 直接记录，不进行重复检测
+                Log.d(TAG, "📝 记录对话: $text (角色: $role)")
                 
                 // 获取真实的用户ID和会话ID
                 val userId = com.llasm.nexusunified.data.UserManager.getUserId() ?: "android_user_${System.currentTimeMillis()}"

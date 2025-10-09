@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 
 class ChatViewModel : ViewModel() {
     
+    // 使用更高效的状态管理
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
     
@@ -47,6 +48,24 @@ class ChatViewModel : ViewModel() {
     // ASR识别状态
     private val _isASRRecognizing = MutableStateFlow(false)
     val isASRRecognizing: StateFlow<Boolean> = _isASRRecognizing.asStateFlow()
+    
+    // 性能优化：限制消息历史数量，避免内存泄漏
+    private val maxMessages = 100
+    
+    /**
+     * 优化的消息添加方法，自动限制历史消息数量
+     */
+    private fun addMessage(message: ChatMessage) {
+        val currentMessages = _messages.value.toMutableList()
+        currentMessages.add(message)
+        
+        // 性能优化：限制消息历史数量，避免内存泄漏
+        if (currentMessages.size > maxMessages) {
+            currentMessages.removeAt(0) // 移除最旧的消息
+        }
+        
+        _messages.value = currentMessages
+    }
     
     // ASR识别文本
     private val _asrRecognizingText = MutableStateFlow("")
@@ -99,7 +118,7 @@ class ChatViewModel : ViewModel() {
             isUser = true
         )
         
-        _messages.value = _messages.value + userMessage
+        addMessage(userMessage)
         _isLoading.value = true
         _error.value = null
         
@@ -137,7 +156,7 @@ class ChatViewModel : ViewModel() {
                         content = chatResponse.response,
                         isUser = false
                     )
-                    _messages.value = _messages.value + aiMessage
+                    addMessage(aiMessage)
                     
                     // 保存消息到历史记录
                     saveCurrentMessagesToConversation()
@@ -213,7 +232,7 @@ class ChatViewModel : ViewModel() {
                     content = "[语音] ${transcription.transcription}",
                     isUser = true
                 )
-                _messages.value = _messages.value + userMessage
+                addMessage(userMessage)
                 
                 // 2. 文字对话
                 val conversationHistory = _messages.value.map { message ->
@@ -232,7 +251,7 @@ class ChatViewModel : ViewModel() {
                         content = chatResponse.response,
                         isUser = false
                     )
-                    _messages.value = _messages.value + aiMessage
+                    addMessage(aiMessage)
                 } else {
                     _error.value = "AI对话失败: ${chatResult.exceptionOrNull()?.message}"
                 }
@@ -287,14 +306,14 @@ class ChatViewModel : ViewModel() {
                         content = "[语音] ${voiceResponse.transcription}",
                         isUser = true
                     )
-                    _messages.value = _messages.value + userMessage
+                    addMessage(userMessage)
                     
                     // 添加AI语音回复
                     val aiMessage = ChatMessage(
                         content = "[语音回复] ${voiceResponse.response}",
                         isUser = false
                     )
-                    _messages.value = _messages.value + aiMessage
+                    addMessage(aiMessage)
                     
                     // TODO: 播放语音回复
                     // 这里可以添加语音播放功能
@@ -379,7 +398,7 @@ class ChatViewModel : ViewModel() {
                         _streamingText.value = ""
                         _isStreamingRequestStarted.value = false
                         val finalMessage = ChatMessage(content = text, isUser = false)
-                        _messages.value = _messages.value + finalMessage // Add the new AI response
+                        addMessage(finalMessage) // Add the new AI response
                         _currentStreamingMessage.value = null
                         saveCurrentMessagesToConversation() // Save after complete
                     }
@@ -514,7 +533,7 @@ class ChatViewModel : ViewModel() {
             isUser = true
         )
         
-        _messages.value = _messages.value + userMessage
+        addMessage(userMessage)
         _isStreaming.value = true
         _isStreamingRequestStarted.value = true  // 标记流式请求已开始
         _streamingText.value = ""
@@ -566,7 +585,7 @@ class ChatViewModel : ViewModel() {
                     content = text,
                     isUser = false
                 )
-                _messages.value = _messages.value + finalMessage
+                addMessage(finalMessage)
                 _currentStreamingMessage.value = null
                 
                 // 保存消息到历史记录
@@ -648,6 +667,14 @@ class ChatViewModel : ViewModel() {
             // 更新历史记录
             saveCurrentMessagesToConversation()
         }
+    }
+    
+    /**
+     * 刷新对话数据（在用户登录/登出时调用）
+     */
+    fun refreshConversationData() {
+        conversationRepository?.refreshUserData()
+        android.util.Log.d("ChatViewModel", "刷新对话数据")
     }
     
     /**

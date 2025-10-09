@@ -102,6 +102,9 @@ class VoiceCallViewModel : ViewModel() {
                 onError = { error ->
                     Log.e(TAG, "音频错误: $error")
                     _currentMessage.value = "❌ 音频错误: $error"
+                },
+                onPlaybackComplete = {
+                    // 播放完成回调（暂时不使用）
                 }
             )
             Log.d(TAG, "音频管理器初始化成功")

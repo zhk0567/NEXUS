@@ -4,6 +4,7 @@ NEXUS后端服务器
 提供ASR、TTS、AI聊天等完整功能
 """
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 import io
 import subprocess
 import sys
@@ -12,7 +13,6 @@ import os
 import logging
 import json
 import requests
-import json
 import time
 import asyncio
 import random
@@ -22,13 +22,13 @@ from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from database_manager import db_manager
 
-# 配置日志
+# 性能优化：配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('nexus_server.log', encoding='utf-8')
+        # 移除文件日志，减少I/O开销
     ]
 )
 logger = logging.getLogger(__name__)
@@ -361,6 +361,9 @@ except ImportError as e:
 
 app = Flask(__name__)
 
+# 启用CORS支持，允许跨域请求
+CORS(app, origins=['*'], methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+
 # DeepSeek API配置
 DEEPSEEK_API_KEY = "sk-66a8c43ecb14406ea020b5a9dd47090d"  # 请替换为您的API密钥
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
@@ -380,23 +383,31 @@ def initialize_dolphin_model():
     try:
         logger.info("🔄 正在初始化Dolphin ASR模型...")
         
+        # 获取绝对路径
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        dolphin_model_path = os.path.join(current_dir, "models", "dolphin")
+        
         # 检查模型文件是否存在
-        if not os.path.exists(DOLPHIN_MODEL_PATH):
-            logger.error(f"❌ Dolphin模型路径不存在: {DOLPHIN_MODEL_PATH}")
+        if not os.path.exists(dolphin_model_path):
+            logger.error(f"❌ Dolphin模型路径不存在: {dolphin_model_path}")
             return False
             
-        model_file = os.path.join(DOLPHIN_MODEL_PATH, "small.pt")
+        model_file = os.path.join(dolphin_model_path, "small.pt")
         if not os.path.exists(model_file):
             logger.error(f"❌ Dolphin模型文件不存在: {model_file}")
             return False
             
-        # 加载模型
-        DOLPHIN_MODEL = dolphin.load_model("small", DOLPHIN_MODEL_PATH, "cpu")
+        logger.info(f"🎤 使用模型路径: {dolphin_model_path}")
+        
+        # 加载模型 - 使用绝对路径
+        DOLPHIN_MODEL = dolphin.load_model("small", dolphin_model_path, "cpu")
         logger.info("✅ Dolphin ASR模型初始化成功")
         return True
         
     except Exception as e:
         logger.error(f"❌ Dolphin模型初始化失败: {e}")
+        import traceback
+        logger.error(f"❌ 错误详情: {traceback.format_exc()}")
         DOLPHIN_MODEL = None
         return False
 
@@ -689,7 +700,7 @@ def chat_with_deepseek(message: str) -> str:
             "messages": [
                 {
                     "role": "system",
-                    "content": "你是一个智能助手，请用中文回答用户的问题。回答要简洁明了，不超过200字。请确保回复内容不包含任何emoji表情符号或颜文字，保持专业和简洁的表达方式。"
+                    "content": "你是一个友好的AI助手。请用纯文本回答用户的问题，不要使用任何Markdown格式符号（如*、#、-、_、`等）。不要提及重复检测、测试循环、系统状态或任何技术细节。如果用户说'你好'，就简单回复'你好'或'你好！有什么可以帮助你的吗？'。保持对话简单自然，使用普通的中文文本。"
                 },
                 {
                     "role": "user",
@@ -704,7 +715,8 @@ def chat_with_deepseek(message: str) -> str:
             f"{DEEPSEEK_BASE_URL}/chat/completions",
             headers=headers,
             json=data,
-            timeout=30
+            timeout=30,
+            proxies={'http': None, 'https': None}  # 禁用代理
         )
         
         if response.status_code == 200:
@@ -1109,7 +1121,7 @@ def chat_streaming():
                 messages = [
                     {
                         "role": "system",
-                        "content": "你是一个智能助手，请用中文回答用户的问题。回答要简洁明了，不超过200字。请确保回复内容不包含任何emoji表情符号或颜文字，保持专业和简洁的表达方式。"
+                        "content": "你是一个友好的AI助手。请用纯文本回答用户的问题，不要使用任何Markdown格式符号（如*、#、-、_、`等）。不要提及重复检测、测试循环、系统状态或任何技术细节。如果用户说'你好'，就简单回复'你好'或'你好！有什么可以帮助你的吗？'。保持对话简单自然，使用普通的中文文本。"
                     }
                 ]
                 
@@ -1140,7 +1152,8 @@ def chat_streaming():
                     headers=headers,
                     json=data,
                     stream=True,  # 启用流式接收
-                    timeout=60
+                    timeout=60,
+                    proxies={'http': None, 'https': None}  # 禁用代理
                 )
                 
                 if response.status_code != 200:
@@ -1453,18 +1466,16 @@ def user_login():
         # 用户认证
         user = db_manager.authenticate_user(username, password)
         if not user:
-            db_manager.log_system_event('WARNING', 'auth', f'登录失败: {username}', 
-                                      {'ip': ip_address, 'user_agent': user_agent})
+            db_manager.log_system_event('WARNING', 'auth', f'登录失败: {username}')
             return jsonify({'error': '用户名或密码错误'}), 401
         
         # 创建会话
-        session_id = db_manager.create_session(user['user_id'], device_info, ip_address, user_agent)
+        session_id = db_manager.create_session(user['user_id'])
         if not session_id:
             return jsonify({'error': '创建会话失败'}), 500
         
         logger.info(f"✅ 用户登录成功: {username}")
-        db_manager.log_system_event('INFO', 'auth', f'用户登录成功: {username}', 
-                                  {'user_id': user['user_id'], 'session_id': session_id})
+        db_manager.log_system_event('INFO', 'auth', f'用户登录成功: {username}')
         
         return jsonify({
             'success': True,
@@ -1525,15 +1536,13 @@ def user_register():
         user_id = f"user_{uuid.uuid4().hex[:8]}"
         
         # 创建用户
-        password_hash = db_manager.hash_password(password)
-        success = db_manager.create_user(user_id, username, password_hash)
+        success = db_manager.create_user(user_id, username, password)
         
         if not success:
             return jsonify({'error': '创建用户失败'}), 500
         
         logger.info(f"✅ 用户注册成功: {username}")
-        db_manager.log_system_event('INFO', 'auth', f'用户注册成功: {username}', 
-                                  {'user_id': user_id})
+        db_manager.log_system_event('INFO', 'auth', f'用户注册成功: {username}')
         
         return jsonify({
             'success': True,
@@ -1692,6 +1701,562 @@ def cleanup_old_data():
         
     except Exception as e:
         logger.error(f"❌ 清理旧数据失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ==================== 故事控制相关API ====================
+
+@app.route('/api/story/reading/session/start', methods=['POST'])
+def start_reading_session():
+    """开始阅读会话"""
+    try:
+        data = request.get_json()
+        if not data or 'user_id' not in data or 'story_id' not in data or 'story_title' not in data:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        user_id = data['user_id']
+        story_id = data['story_id']
+        story_title = data['story_title']
+        session_id = data.get('session_id')
+        device_info = data.get('device_info', '')
+        
+        # 验证用户身份
+        if not db_manager.user_exists(user_id):
+            return jsonify({'error': '用户身份验证失败'}), 401
+        
+        # 创建阅读会话
+        session_id = db_manager.create_reading_session(
+            user_id=user_id,
+            story_id=story_id,
+            story_title=story_title,
+            session_id=session_id,
+            device_info=device_info
+        )
+        
+        if not session_id:
+            return jsonify({'error': '创建阅读会话失败'}), 500
+        
+        # 记录开始阅读交互
+        db_manager.log_story_interaction(
+            user_id=user_id,
+            story_id=story_id,
+            interaction_type='start_reading',
+            session_id=session_id,
+            device_info=device_info
+        )
+        
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'message': '阅读会话已开始'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 开始阅读会话失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/story/reading/session/end', methods=['POST'])
+def end_reading_session():
+    """结束阅读会话"""
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data:
+            return jsonify({'error': '缺少会话ID'}), 400
+        
+        session_id = data['session_id']
+        characters_read = data.get('characters_read', 0)
+        
+        # 结束阅读会话
+        success = db_manager.end_reading_session(session_id, characters_read)
+        
+        if not success:
+            return jsonify({'error': '结束阅读会话失败'}), 500
+        
+        return jsonify({
+            'success': True,
+            'message': '阅读会话已结束'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 结束阅读会话失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/story/reading/progress', methods=['POST'])
+def update_reading_progress():
+    """更新阅读进度"""
+    try:
+        data = request.get_json()
+        if not data or 'user_id' not in data or 'story_id' not in data:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        user_id = data['user_id']
+        story_id = data['story_id']
+        story_title = data.get('story_title', '')
+        current_position = data.get('current_position', 0)
+        total_length = data.get('total_length', 0)
+        session_id = data.get('session_id')
+        device_info = data.get('device_info', '')
+        
+        # 验证用户身份
+        if not db_manager.user_exists(user_id):
+            return jsonify({'error': '用户身份验证失败'}), 401
+        
+        # 获取用户名
+        user_info = db_manager.get_user_by_id(user_id)
+        username = user_info.get('username', '') if user_info else ''
+        
+        # 更新阅读进度
+        success = db_manager.update_reading_progress(
+            user_id=user_id,
+            story_id=story_id,
+            story_title=story_title,
+            current_position=current_position,
+            total_length=total_length,
+            device_info=device_info,
+            username=username
+        )
+        
+        if not success:
+            return jsonify({'error': '更新阅读进度失败'}), 500
+        
+        # 计算进度百分比
+        progress_percentage = (current_position / total_length * 100) if total_length > 0 else 0
+        
+        return jsonify({
+            'success': True,
+            'progress_percentage': round(progress_percentage, 2),
+            'is_completed': progress_percentage >= 100.0,
+            'message': '阅读进度已更新'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 更新阅读进度失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/story/reading/progress', methods=['GET'])
+def get_reading_progress():
+    """获取阅读进度"""
+    try:
+        user_id = request.args.get('user_id')
+        story_id = request.args.get('story_id')
+        
+        if not user_id:
+            return jsonify({'error': '缺少用户ID'}), 400
+        
+        # 验证用户身份
+        if not db_manager.user_exists(user_id):
+            return jsonify({'error': '用户身份验证失败'}), 401
+        
+        # 获取阅读进度
+        progress_list = db_manager.get_reading_progress(user_id, story_id)
+        
+        return jsonify({
+            'success': True,
+            'progress': progress_list,
+            'count': len(progress_list)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 获取阅读进度失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/story/interaction', methods=['POST'])
+def log_story_interaction():
+    """记录故事交互"""
+    try:
+        data = request.get_json()
+        if not data or 'user_id' not in data or 'story_id' not in data or 'interaction_type' not in data:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        user_id = data['user_id']
+        story_id = data['story_id']
+        interaction_type = data['interaction_type']
+        interaction_data = data.get('interaction_data')
+        session_id = data.get('session_id')
+        device_info = data.get('device_info', '')
+        
+        # 验证用户身份
+        if not db_manager.user_exists(user_id):
+            return jsonify({'error': '用户身份验证失败'}), 401
+        
+        # 验证交互类型
+        valid_types = ['start_reading', 'pause_reading', 'resume_reading', 'complete_reading', 'bookmark', 'share', 'rate']
+        if interaction_type not in valid_types:
+            return jsonify({'error': f'无效的交互类型，必须是: {valid_types}'}), 400
+        
+        # 记录交互
+        success = db_manager.log_story_interaction(
+            user_id=user_id,
+            story_id=story_id,
+            interaction_type=interaction_type,
+            interaction_data=interaction_data,
+            session_id=session_id,
+            device_info=device_info
+        )
+        
+        if not success:
+            return jsonify({'error': '记录交互失败'}), 500
+        
+        return jsonify({
+            'success': True,
+            'message': '交互记录成功'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 记录故事交互失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/story/statistics', methods=['GET'])
+def get_reading_statistics():
+    """获取阅读统计"""
+    try:
+        user_id = request.args.get('user_id')
+        days = int(request.args.get('days', 30))
+        
+        if not user_id:
+            return jsonify({'error': '缺少用户ID'}), 400
+        
+        # 验证用户身份
+        if not db_manager.user_exists(user_id):
+            return jsonify({'error': '用户身份验证失败'}), 401
+        
+        # 获取阅读统计
+        statistics = db_manager.get_reading_statistics(user_id, days)
+        
+        return jsonify({
+            'success': True,
+            'statistics': statistics,
+            'period_days': days
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 获取阅读统计失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ==================== 管理员相关API ====================
+
+@app.route('/api/admin/users/reading-progress', methods=['GET'])
+def admin_get_all_reading_progress():
+    """管理员获取所有用户阅读进度"""
+    try:
+        admin_user_id = request.args.get('admin_user_id')
+        limit = int(request.args.get('limit', 100))
+        offset = int(request.args.get('offset', 0))
+        
+        if not admin_user_id:
+            return jsonify({'error': '缺少管理员用户ID'}), 400
+        
+        # 验证管理员身份（这里简化处理，实际应该检查管理员权限）
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        # 获取所有用户阅读进度
+        result = db_manager.get_all_users_reading_progress(limit, offset)
+        
+        if result is None:
+            return jsonify({'error': '获取阅读进度失败'}), 500
+        
+        return jsonify({
+            'success': True,
+            'data': result
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员获取阅读进度失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/users/<user_id>/summary', methods=['GET'])
+def admin_get_user_summary(user_id):
+    """管理员获取用户阅读摘要"""
+    try:
+        admin_user_id = request.args.get('admin_user_id')
+        
+        if not admin_user_id:
+            return jsonify({'error': '缺少管理员用户ID'}), 400
+        
+        # 验证管理员身份
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        # 获取用户阅读摘要
+        summary = db_manager.get_user_reading_summary(user_id)
+        
+        if summary is None:
+            return jsonify({'error': '用户不存在或获取摘要失败'}), 404
+        
+        return jsonify({
+            'success': True,
+            'summary': summary
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员获取用户摘要失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/users/<user_id>/details', methods=['GET'])
+def admin_get_user_details(user_id):
+    """管理员获取用户详细信息"""
+    try:
+        admin_user_id = request.args.get('admin_user_id')
+        
+        if not admin_user_id:
+            return jsonify({'error': '缺少管理员用户ID'}), 400
+        
+        # 验证管理员身份
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        # 获取用户基本信息
+        user_info = db_manager.get_user_by_id(user_id)
+        if not user_info:
+            return jsonify({'error': '用户不存在'}), 404
+        
+        # 获取用户阅读进度详情
+        reading_progress = db_manager.get_user_reading_progress_details(user_id)
+        
+        # 获取用户统计信息
+        stats = db_manager.get_user_reading_summary(user_id)
+        
+        return jsonify({
+            'success': True,
+            'user_info': user_info,
+            'reading_progress': reading_progress,
+            'stats': stats
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员获取用户详情失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/reading/completion', methods=['POST'])
+def admin_update_reading_completion():
+    """管理员更新用户阅读完成状态"""
+    try:
+        data = request.get_json()
+        if not data or 'admin_user_id' not in data or 'user_id' not in data or 'story_id' not in data or 'is_completed' not in data:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        admin_user_id = data['admin_user_id']
+        user_id = data['user_id']
+        story_id = data['story_id']
+        is_completed = data['is_completed']
+        
+        # 验证管理员身份
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        # 更新阅读完成状态
+        success, message = db_manager.admin_update_reading_completion(
+            user_id, story_id, is_completed, admin_user_id
+        )
+        
+        if not success:
+            return jsonify({'error': message}), 400
+        
+        return jsonify({
+            'success': True,
+            'message': message
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员更新阅读完成状态失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/reading/progress', methods=['POST'])
+def admin_update_reading_progress():
+    """管理员更新用户阅读进度"""
+    try:
+        data = request.get_json()
+        admin_user_id = data.get('admin_user_id')
+        user_id = data.get('user_id')
+        story_id = data.get('story_id')
+        progress = data.get('progress', 0)  # 0-100
+        current_position = data.get('current_position', 0)
+        total_length = data.get('total_length', 100)
+        
+        if not all([admin_user_id, user_id, story_id]):
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        # 验证管理员身份
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        # 确保进度在0-100范围内
+        progress = max(0, min(100, progress))
+        
+        # 获取用户名
+        user_info = db_manager.get_user_by_id(user_id)
+        username = user_info.get('username', '') if user_info else ''
+        
+        # 更新阅读进度
+        success = db_manager.update_reading_progress(
+            user_id=user_id,
+            story_id=story_id,
+            story_title="管理员操作",  # 管理员操作时使用通用标题
+            current_position=current_position,
+            total_length=total_length,
+            device_info="admin_operation",
+            username=username
+        )
+        
+        if success:
+            # 记录管理员操作
+            db_manager.log_admin_operation(admin_user_id, user_id, story_id, 'update_progress')
+            
+            return jsonify({
+                'success': True,
+                'message': f'已更新阅读进度为 {progress}%'
+            })
+        else:
+            return jsonify({'error': '更新失败'}), 500
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员更新阅读进度失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/reading/bulk', methods=['POST'])
+def admin_bulk_reading_operations():
+    """管理员批量操作阅读进度"""
+    try:
+        data = request.get_json()
+        admin_user_id = data.get('admin_user_id')
+        operations = data.get('operations', [])
+        
+        if not admin_user_id or not operations:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        # 验证管理员身份
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        results = []
+        success_count = 0
+        
+        for operation in operations:
+            op_type = operation.get('type')
+            user_id = operation.get('user_id')
+            story_id = operation.get('story_id')
+            
+            try:
+                if op_type == 'mark_completed':
+                    success, message = db_manager.admin_update_reading_completion(user_id, story_id, True, admin_user_id)
+                elif op_type == 'mark_incomplete':
+                    success, message = db_manager.admin_update_reading_completion(user_id, story_id, False, admin_user_id)
+                elif op_type == 'update_progress':
+                    progress = operation.get('progress', 0)
+                    current_position = operation.get('current_position', 0)
+                    total_length = operation.get('total_length', 100)
+                    
+                    # 获取用户名
+                    user_info = db_manager.get_user_by_id(user_id)
+                    username = user_info.get('username', '') if user_info else ''
+                    
+                    success = db_manager.update_reading_progress(
+                        user_id=user_id,
+                        story_id=story_id,
+                        story_title="管理员批量操作",
+                        current_position=current_position,
+                        total_length=total_length,
+                        device_info="admin_bulk_operation",
+                        username=username
+                    )
+                    message = f'更新进度为 {progress}%' if success else '更新失败'
+                else:
+                    success = False
+                    message = '未知操作类型'
+                
+                if success:
+                    success_count += 1
+                
+                results.append({
+                    'user_id': user_id,
+                    'story_id': story_id,
+                    'type': op_type,
+                    'success': success,
+                    'message': message
+                })
+                
+            except Exception as e:
+                results.append({
+                    'user_id': user_id,
+                    'story_id': story_id,
+                    'type': op_type,
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        return jsonify({
+            'success': True,
+            'message': f'批量操作完成，成功 {success_count}/{len(operations)} 项',
+            'results': results
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员批量操作失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/users', methods=['GET'])
+def admin_get_all_users():
+    """管理员获取所有用户列表"""
+    try:
+        admin_user_id = request.args.get('admin_user_id')
+        limit = int(request.args.get('limit', 50))
+        offset = int(request.args.get('offset', 0))
+        
+        if not admin_user_id:
+            return jsonify({'error': '缺少管理员用户ID'}), 400
+        
+        # 验证管理员身份
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        # 获取所有用户
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if not db_manager.connection or not db_manager.connection.open:
+                    db_manager.reconnect()
+                
+                with db_manager.connection.cursor() as cursor:
+                    # 获取用户列表
+                    sql = """
+                    SELECT u.user_id, u.username, u.created_at, u.last_login_at, u.is_active,
+                           COUNT(rp.id) as total_stories,
+                           SUM(CASE WHEN rp.is_completed = 1 THEN 1 ELSE 0 END) as completed_stories
+                    FROM users u
+                    LEFT JOIN reading_progress rp ON u.user_id = rp.user_id
+                    GROUP BY u.user_id, u.username, u.created_at, u.last_login_at, u.is_active
+                    ORDER BY u.created_at DESC
+                    LIMIT %s OFFSET %s
+                    """
+                    cursor.execute(sql, (limit, offset))
+                    columns = [desc[0] for desc in cursor.description]
+                    users = []
+                    for row in cursor.fetchall():
+                        user = dict(zip(columns, row))
+                        users.append(user)
+                    
+                    # 获取总数
+                    count_sql = "SELECT COUNT(*) FROM users"
+                    cursor.execute(count_sql)
+                    total_count = cursor.fetchone()[0]
+                    
+                    return jsonify({
+                        'success': True,
+                        'users': users,
+                        'total_count': total_count,
+                        'limit': limit,
+                        'offset': offset
+                    })
+                    
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    db_manager.reconnect()
+                    time.sleep(1)
+                else:
+                    raise e
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员获取用户列表失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
