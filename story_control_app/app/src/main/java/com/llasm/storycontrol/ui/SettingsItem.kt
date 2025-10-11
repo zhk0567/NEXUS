@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.llasm.storycontrol.data.ThemeColors
+import com.llasm.storycontrol.data.FontStyle
 
 @Composable
 fun SettingsItem(

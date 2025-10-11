@@ -92,6 +92,7 @@ CREATE_TABLES_SQL = {
         total_length INT DEFAULT 0 COMMENT '故事总长度（字符数）',
         reading_progress DECIMAL(5,2) DEFAULT 0.00 COMMENT '阅读进度百分比',
         is_completed BOOLEAN DEFAULT FALSE COMMENT '是否已完成阅读',
+        completion_mode ENUM('text', 'audio', 'mixed') NULL COMMENT '完成方式：文字模式、音频模式、混合模式',
         start_time TIMESTAMP NULL COMMENT '开始阅读时间',
         last_read_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后阅读时间',
         completion_time TIMESTAMP NULL COMMENT '完成阅读时间',
@@ -102,6 +103,7 @@ CREATE_TABLES_SQL = {
         INDEX idx_story_id (story_id),
         INDEX idx_user_story (user_id, story_id),
         INDEX idx_is_completed (is_completed),
+        INDEX idx_completion_mode (completion_mode),
         INDEX idx_last_read_time (last_read_time),
         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='阅读进度表'
@@ -112,19 +114,20 @@ CREATE_TABLES_SQL = {
     CREATE TABLE IF NOT EXISTS story_interactions (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id VARCHAR(255) NOT NULL COMMENT '用户ID',
+        username VARCHAR(100) NULL COMMENT '用户名',
         story_id VARCHAR(255) NOT NULL COMMENT '故事ID',
         interaction_type ENUM(
-            'start_reading', 'pause_reading', 'resume_reading', 'complete_reading',
-            'audio_play', 'audio_pause', 'audio_stop', 'audio_seek',
-            'scroll_start', 'scroll_pause', 'scroll_resume',
-            'bookmark', 'share', 'rate', 'view_details', 'filter_change',
-            'bulk_action', 'admin_operation'
+            'app_open', 'app_close', 'audio_play', 'audio_pause', 'audio_stop',
+            'text_complete', 'audio_complete', 'view_details', 'first_scroll',
+            'complete_button_click', 'audio_play_click', 'audio_complete_button_click',
+            'text_complete_button_click'
         ) NOT NULL COMMENT '交互类型',
         interaction_data JSON NULL COMMENT '交互数据（如位置、进度、操作参数等）',
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '交互时间',
         device_info VARCHAR(500) NULL COMMENT '设备信息',
         app_version VARCHAR(50) NULL COMMENT '应用版本',
         INDEX idx_user_id (user_id),
+        INDEX idx_username (username),
         INDEX idx_story_id (story_id),
         INDEX idx_interaction_type (interaction_type),
         INDEX idx_timestamp (timestamp),
@@ -149,6 +152,30 @@ CREATE_TABLES_SQL = {
         FOREIGN KEY (admin_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
         FOREIGN KEY (target_user_id) REFERENCES users(user_id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='管理员操作日志表'
+    """,
+    
+    'stories': """
+    CREATE TABLE IF NOT EXISTS stories (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        story_id VARCHAR(255) UNIQUE NOT NULL COMMENT '故事唯一标识',
+        title VARCHAR(500) NOT NULL COMMENT '故事标题',
+        content LONGTEXT NOT NULL COMMENT '故事内容',
+        audio_file_path VARCHAR(1000) NULL COMMENT '音频文件路径',
+        audio_duration_seconds INT NULL COMMENT '音频时长（秒）',
+        is_active BOOLEAN DEFAULT TRUE COMMENT '是否激活',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+        created_by VARCHAR(255) NULL COMMENT '创建者用户ID',
+        updated_by VARCHAR(255) NULL COMMENT '最后更新者用户ID',
+        version INT DEFAULT 1 COMMENT '版本号',
+        INDEX idx_story_id (story_id),
+        INDEX idx_title (title),
+        INDEX idx_is_active (is_active),
+        INDEX idx_created_at (created_at),
+        INDEX idx_updated_at (updated_at),
+        FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL,
+        FOREIGN KEY (updated_by) REFERENCES users(user_id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='故事内容表'
     """
 }
 

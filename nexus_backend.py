@@ -18,6 +18,7 @@ import asyncio
 import random
 import psutil
 import threading
+import pymysql
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from database_manager import db_manager
@@ -700,7 +701,31 @@ def chat_with_deepseek(message: str) -> str:
             "messages": [
                 {
                     "role": "system",
-                    "content": "你是一个友好的AI助手。请用纯文本回答用户的问题，不要使用任何Markdown格式符号（如*、#、-、_、`等）。不要提及重复检测、测试循环、系统状态或任何技术细节。如果用户说'你好'，就简单回复'你好'或'你好！有什么可以帮助你的吗？'。保持对话简单自然，使用普通的中文文本。"
+                    "content": """你是一个贴心的AI助手，请用温暖、耐心、易懂的方式回答用户的问题。
+重要：你必须用完整的中文句子回答，绝对不要只返回数字、代码或时间戳。
+
+回答要求：
+用温暖、亲切的语气与用户交流，就像对待朋友一样。
+语言要简单易懂，避免使用复杂的专业术语和网络用语。
+如果涉及健康、医疗、养生等问题，要特别谨慎，建议咨询专业医生。
+对于生活常识和日常问题，要详细解释，让用户能够理解。
+如果涉及科技产品使用，要一步一步详细说明。
+对于天气、日期、节日等日常信息，要说得具体清楚。
+如果用户问重复的问题，要耐心回答，不要表现出不耐烦。
+对于家庭、子女、孙辈等话题，要给予理解和关怀。
+如果涉及金钱、投资等敏感话题，要提醒谨慎，建议与家人商量。
+用词要通俗易懂，避免使用年轻人常用的网络词汇。
+句子要完整，表达要清晰，让用户容易理解。
+
+格式要求：
+绝对不要使用任何markdown格式符号(*、#、-、_、`等)。
+绝对不要使用emoji表情符号或特殊符号。
+保持简洁明了，句子之间用句号分隔，不要使用多余空格。
+不要使用列表格式，用句号连接各个要点。
+不要使用换行符，所有内容在一行内表达。
+标点符号前后不要添加空格。
+
+请确保你的回答是完整的中文句子，包含具体信息，格式简洁清晰，没有多余的空格和符号，特别适合用户理解和接受。"""
                 },
                 {
                     "role": "user",
@@ -1121,7 +1146,32 @@ def chat_streaming():
                 messages = [
                     {
                         "role": "system",
-                        "content": "你是一个友好的AI助手。请用纯文本回答用户的问题，不要使用任何Markdown格式符号（如*、#、-、_、`等）。不要提及重复检测、测试循环、系统状态或任何技术细节。如果用户说'你好'，就简单回复'你好'或'你好！有什么可以帮助你的吗？'。保持对话简单自然，使用普通的中文文本。"
+                        "content": """你是一个贴心的AI助手，请用温暖、耐心、易懂的方式回答用户的问题。
+重要：你必须用完整的中文句子回答，绝对不要只返回数字、代码或时间戳。
+
+回答要求：
+用温暖、亲切的语气与用户交流，就像对待朋友一样。
+语言要简单易懂，避免使用复杂的专业术语和网络用语。
+说话要慢一点，每个要点都要说清楚，不要着急。
+如果涉及健康、医疗、养生等问题，要特别谨慎，建议咨询专业医生。
+对于生活常识和日常问题，要详细解释，让用户能够理解。
+如果涉及科技产品使用，要一步一步详细说明。
+对于天气、日期、节日等日常信息，要说得具体清楚。
+如果用户问重复的问题，要耐心回答，不要表现出不耐烦。
+对于家庭、子女、孙辈等话题，要给予理解和关怀。
+如果涉及金钱、投资等敏感话题，要提醒谨慎，建议与家人商量。
+用词要通俗易懂，避免使用年轻人常用的网络词汇。
+句子要完整，表达要清晰，让用户容易理解。
+
+格式要求：
+绝对不要使用任何markdown格式符号(*、#、-、_、`等)。
+绝对不要使用emoji表情符号或特殊符号。
+保持简洁明了，句子之间用句号分隔，不要使用多余空格。
+不要使用列表格式，用句号连接各个要点。
+不要使用换行符，所有内容在一行内表达。
+标点符号前后不要添加空格。
+
+请确保你的回答是完整的中文句子，包含具体信息，格式简洁清晰，没有多余的空格和符号，特别适合用户理解和接受。"""
                     }
                 ]
                 
@@ -1740,7 +1790,6 @@ def start_reading_session():
             user_id=user_id,
             story_id=story_id,
             interaction_type='start_reading',
-            session_id=session_id,
             device_info=device_info
         )
         
@@ -1821,10 +1870,14 @@ def update_reading_progress():
         # 计算进度百分比
         progress_percentage = (current_position / total_length * 100) if total_length > 0 else 0
         
+        # 获取故事的实际完成状态（不基于进度自动判断）
+        reading_progress = db_manager.get_reading_progress(user_id, story_id)
+        is_completed = reading_progress.get('is_completed', False) if reading_progress else False
+        
         return jsonify({
             'success': True,
             'progress_percentage': round(progress_percentage, 2),
-            'is_completed': progress_percentage >= 100.0,
+            'is_completed': is_completed,  # 使用数据库中的实际完成状态，而非基于进度自动判断
             'message': '阅读进度已更新'
         })
         
@@ -1879,7 +1932,10 @@ def log_story_interaction():
             return jsonify({'error': '用户身份验证失败'}), 401
         
         # 验证交互类型
-        valid_types = ['start_reading', 'pause_reading', 'resume_reading', 'complete_reading', 'bookmark', 'share', 'rate']
+        valid_types = ['app_open', 'app_close', 'audio_play', 'audio_pause', 'audio_stop', 
+                      'text_complete', 'audio_complete', 'view_details', 'first_scroll',
+                      'complete_button_click', 'audio_play_click', 'audio_complete_button_click',
+                      'text_complete_button_click']
         if interaction_type not in valid_types:
             return jsonify({'error': f'无效的交互类型，必须是: {valid_types}'}), 400
         
@@ -1889,7 +1945,6 @@ def log_story_interaction():
             story_id=story_id,
             interaction_type=interaction_type,
             interaction_data=interaction_data,
-            session_id=session_id,
             device_info=device_info
         )
         
@@ -1903,6 +1958,66 @@ def log_story_interaction():
         
     except Exception as e:
         logger.error(f"❌ 记录故事交互失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/story/complete', methods=['POST'])
+def complete_story_reading():
+    """完成故事阅读"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        story_id = data.get('story_id')
+        story_title = data.get('story_title', '')
+        completion_mode = data.get('completion_mode')  # 'text' 或 'audio'
+        device_info = data.get('device_info', '')
+        
+        if not user_id or not story_id or not completion_mode:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        # 验证用户身份
+        if not db_manager.user_exists(user_id):
+            return jsonify({'error': '用户身份验证失败'}), 401
+        
+        # 验证完成方式
+        valid_modes = ['text', 'audio', 'mixed']
+        if completion_mode not in valid_modes:
+            return jsonify({'error': f'无效的完成方式，必须是: {valid_modes}'}), 400
+        
+        # 获取用户信息以获取正确的username
+        user_info = db_manager.get_user_details(user_id)
+        username = user_info.get('username', 'unknown') if user_info else 'unknown'
+        
+        # 标记故事完成
+        success = db_manager.complete_reading(
+            user_id=user_id,
+            story_id=story_id,
+            story_title=story_title,
+            completion_mode=completion_mode,
+            device_info=device_info,
+            username=username
+        )
+        
+        if success:
+            # 记录交互
+            interaction_type = 'text_complete' if completion_mode == 'text' else 'audio_complete'
+            db_manager.log_story_interaction(
+                user_id=user_id,
+                story_id=story_id,
+                interaction_type=interaction_type,
+                interaction_data={'completion_mode': completion_mode},
+                device_info=device_info
+            )
+            
+            return jsonify({
+                'success': True,
+                'message': '故事阅读完成',
+                'completion_mode': completion_mode
+            })
+        else:
+            return jsonify({'error': '标记完成失败'}), 500
+            
+    except Exception as e:
+        logger.error(f"❌ 完成故事阅读失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/story/statistics', methods=['GET'])
@@ -2194,6 +2309,78 @@ def admin_bulk_reading_operations():
         logger.error(f"❌ 管理员批量操作失败: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/reading/delete', methods=['POST'])
+def admin_delete_reading_record():
+    """管理员删除阅读记录"""
+    try:
+        data = request.get_json()
+        admin_user_id = data.get('admin_user_id')
+        record_id = data.get('record_id')
+        
+        if not admin_user_id or not record_id:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        # 验证管理员身份
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        # 删除阅读记录
+        success = db_manager.delete_reading_record(record_id)
+        
+        if success:
+            # 记录管理员操作
+            db_manager.log_admin_operation(admin_user_id, None, None, 'delete_reading_record')
+            
+            return jsonify({
+                'success': True,
+                'message': '记录删除成功'
+            })
+        else:
+            return jsonify({'error': '删除失败'}), 500
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员删除阅读记录失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/reading/bulk-delete', methods=['POST'])
+def admin_bulk_delete_reading_records():
+    """管理员批量删除阅读记录"""
+    try:
+        data = request.get_json()
+        admin_user_id = data.get('admin_user_id')
+        record_ids = data.get('record_ids', [])
+        
+        if not admin_user_id or not record_ids:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        # 验证管理员身份
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        # 批量删除阅读记录
+        success_count = 0
+        failed_count = 0
+        
+        for record_id in record_ids:
+            if db_manager.delete_reading_record(record_id):
+                success_count += 1
+            else:
+                failed_count += 1
+        
+        # 记录管理员操作
+        db_manager.log_admin_operation(admin_user_id, None, None, 'bulk_delete_reading_records')
+        
+        return jsonify({
+            'success': True,
+            'message': f'批量删除完成：成功 {success_count} 条，失败 {failed_count} 条',
+            'success_count': success_count,
+            'failed_count': failed_count
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员批量删除阅读记录失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/admin/users', methods=['GET'])
 def admin_get_all_users():
     """管理员获取所有用户列表"""
@@ -2216,7 +2403,7 @@ def admin_get_all_users():
                 if not db_manager.connection or not db_manager.connection.open:
                     db_manager.reconnect()
                 
-                with db_manager.connection.cursor() as cursor:
+                with db_manager.connection.cursor(pymysql.cursors.DictCursor) as cursor:
                     # 获取用户列表
                     sql = """
                     SELECT u.user_id, u.username, u.created_at, u.last_login_at, u.is_active,
@@ -2229,16 +2416,12 @@ def admin_get_all_users():
                     LIMIT %s OFFSET %s
                     """
                     cursor.execute(sql, (limit, offset))
-                    columns = [desc[0] for desc in cursor.description]
-                    users = []
-                    for row in cursor.fetchall():
-                        user = dict(zip(columns, row))
-                        users.append(user)
+                    users = cursor.fetchall()
                     
                     # 获取总数
-                    count_sql = "SELECT COUNT(*) FROM users"
+                    count_sql = "SELECT COUNT(*) as count FROM users"
                     cursor.execute(count_sql)
-                    total_count = cursor.fetchone()[0]
+                    total_count = cursor.fetchone()['count']
                     
                     return jsonify({
                         'success': True,
@@ -2257,6 +2440,237 @@ def admin_get_all_users():
         
     except Exception as e:
         logger.error(f"❌ 管理员获取用户列表失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/users/<user_id>/password', methods=['POST'])
+def admin_reset_user_password(user_id):
+    """管理员重置用户密码"""
+    try:
+        data = request.get_json()
+        admin_user_id = data.get('admin_user_id')
+        new_password = data.get('new_password')
+        
+        if not admin_user_id or not user_id or not new_password:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        # 验证管理员身份
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        # 重置用户密码
+        success = db_manager.reset_user_password(user_id, new_password)
+        
+        if success:
+            # 记录管理员操作
+            db_manager.log_admin_operation(admin_user_id, user_id, None, 'reset_password')
+            
+            return jsonify({
+                'success': True,
+                'message': '密码重置成功'
+            })
+        else:
+            return jsonify({'error': '密码重置失败'}), 500
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员重置用户密码失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/users/<user_id>/password', methods=['GET'])
+def admin_get_user_password_info(user_id):
+    """管理员获取用户密码信息"""
+    try:
+        admin_user_id = request.args.get('admin_user_id')
+        
+        if not admin_user_id or not user_id:
+            return jsonify({'error': '缺少必要参数'}), 400
+        
+        # 验证管理员身份
+        if not db_manager.user_exists(admin_user_id):
+            return jsonify({'error': '管理员身份验证失败'}), 401
+        
+        # 获取用户密码信息
+        password_info = db_manager.get_user_password_info(user_id)
+        
+        if password_info:
+            return jsonify({
+                'success': True,
+                'password_info': password_info
+            })
+        else:
+            return jsonify({'error': '获取密码信息失败'}), 500
+        
+    except Exception as e:
+        logger.error(f"❌ 管理员获取用户密码信息失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ==================== 故事管理API ====================
+
+@app.route('/api/admin/stories', methods=['GET'])
+def get_all_stories():
+    """获取所有故事（管理员）"""
+    try:
+        include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+        stories = db_manager.get_all_stories(include_inactive=include_inactive)
+        return jsonify({
+            'success': True,
+            'stories': stories,
+            'total': len(stories)
+        })
+    except Exception as e:
+        logger.error(f"❌ 获取故事列表失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/stories/<story_id>', methods=['GET'])
+def get_story(story_id):
+    """获取单个故事详情（管理员）"""
+    try:
+        story = db_manager.get_story(story_id)
+        if story:
+            return jsonify({
+                'success': True,
+                'story': story
+            })
+        else:
+            return jsonify({'error': '故事不存在'}), 404
+    except Exception as e:
+        logger.error(f"❌ 获取故事详情失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/stories', methods=['POST'])
+def create_story():
+    """创建新故事（管理员）"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '请求数据不能为空'}), 400
+        
+        story_id = data.get('story_id')
+        title = data.get('title')
+        content = data.get('content')
+        audio_file_path = data.get('audio_file_path')
+        audio_duration_seconds = data.get('audio_duration_seconds')
+        created_by = data.get('created_by', 'admin')
+        
+        if not story_id or not title or not content:
+            return jsonify({'error': '故事ID、标题和内容不能为空'}), 400
+        
+        success = db_manager.create_story(
+            story_id=story_id,
+            title=title,
+            content=content,
+            audio_file_path=audio_file_path,
+            audio_duration_seconds=audio_duration_seconds,
+            created_by=created_by
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': '故事创建成功',
+                'story_id': story_id
+            })
+        else:
+            return jsonify({'error': '故事创建失败'}), 500
+            
+    except Exception as e:
+        logger.error(f"❌ 创建故事失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/stories/<story_id>', methods=['PUT'])
+def update_story(story_id):
+    """更新故事（管理员）"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '请求数据不能为空'}), 400
+        
+        title = data.get('title')
+        content = data.get('content')
+        audio_file_path = data.get('audio_file_path')
+        audio_duration_seconds = data.get('audio_duration_seconds')
+        is_active = data.get('is_active')
+        updated_by = data.get('updated_by', 'admin')
+        
+        success = db_manager.update_story(
+            story_id=story_id,
+            title=title,
+            content=content,
+            audio_file_path=audio_file_path,
+            audio_duration_seconds=audio_duration_seconds,
+            is_active=is_active,
+            updated_by=updated_by
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': '故事更新成功',
+                'story_id': story_id
+            })
+        else:
+            return jsonify({'error': '故事更新失败或故事不存在'}), 500
+            
+    except Exception as e:
+        logger.error(f"❌ 更新故事失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/stories/<story_id>/activate', methods=['POST'])
+def activate_story(story_id):
+    """激活故事（管理员）"""
+    try:
+        success = db_manager.activate_story(story_id)
+        if success:
+            return jsonify({
+                'success': True,
+                'message': '故事激活成功',
+                'story_id': story_id
+            })
+        else:
+            return jsonify({'error': '故事激活失败或故事不存在'}), 500
+    except Exception as e:
+        logger.error(f"❌ 激活故事失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/stories/<story_id>/deactivate', methods=['POST'])
+def deactivate_story(story_id):
+    """停用故事（管理员）"""
+    try:
+        success = db_manager.delete_story(story_id)  # 软删除，设置为不活跃
+        if success:
+            return jsonify({
+                'success': True,
+                'message': '故事停用成功',
+                'story_id': story_id
+            })
+        else:
+            return jsonify({'error': '故事停用失败或故事不存在'}), 500
+    except Exception as e:
+        logger.error(f"❌ 停用故事失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/stories/active', methods=['GET'])
+def get_active_stories():
+    """获取活跃故事列表（用户端）"""
+    try:
+        stories = db_manager.get_all_stories(include_inactive=False)
+        # 只返回用户需要的信息
+        user_stories = []
+        for story in stories:
+            user_stories.append({
+                'id': story['story_id'],
+                'title': story['title'],
+                'content': story['content'],
+                'audio_file_path': story['audio_file_path'],
+                'audio_duration_seconds': story['audio_duration_seconds']
+            })
+        
+        return jsonify({
+            'success': True,
+            'stories': user_stories,
+            'total': len(user_stories)
+        })
+    except Exception as e:
+        logger.error(f"❌ 获取活跃故事列表失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
@@ -2278,6 +2692,7 @@ if __name__ == '__main__':
     
     logger.info("🚀 启动NEXUS后端服务器...")
     logger.info(f"🌐 服务地址: http://{local_ip}:5000")
+    logger.info(f"📊 管理员面板: http://{local_ip}:5000/admin")
     
     # 初始化Dolphin ASR模型
     dolphin_available = initialize_dolphin_model()

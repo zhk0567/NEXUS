@@ -1223,18 +1223,18 @@ private fun HoldToCallButton(
                 .size(120.dp) // 更大的按钮
                 .background(
                     when {
-                        isWaitingForResponse -> Color(0xFF9C27B0) // 等待响应 - 紫色
-                        isCalling -> Color(0xFFFF5722) // 通话中 - 橙色
-                        else -> Color(0xFF2C2C2C) // 正常状态 - 深灰色，类似录音按钮
+                        isWaitingForResponse -> if (isDarkMode) Color(0xFF4A148C) else Color(0xFF9C27B0) // 等待响应 - 深色模式用深紫色，浅色模式用紫色
+                        isCalling -> if (isDarkMode) Color(0xFFD84315) else Color(0xFFFF5722) // 通话中 - 深色模式用深橙色，浅色模式用橙色
+                        else -> if (isDarkMode) Color(0xFF424242) else Color(0xFF757575) // 正常状态 - 深色模式用深灰色，浅色模式用中灰色
                     },
                     CircleShape
                 )
                 .border(
                     width = 2.dp,
                     color = when {
-                        isWaitingForResponse -> Color(0xFFBA68C8) // 等待响应 - 浅紫色边框
-                        isCalling -> Color(0xFFFF9800) // 通话中 - 橙色边框
-                        else -> Color(0xFF404040) // 正常状态 - 深灰色边框
+                        isWaitingForResponse -> if (isDarkMode) Color(0xFF6A1B9A) else Color(0xFFBA68C8) // 等待响应 - 深色模式用深紫色边框，浅色模式用浅紫色边框
+                        isCalling -> if (isDarkMode) Color(0xFFFF7043) else Color(0xFFFF9800) // 通话中 - 深色模式用深橙色边框，浅色模式用橙色边框
+                        else -> if (isDarkMode) Color(0xFF616161) else Color(0xFF9E9E9E) // 正常状态 - 深色模式用深灰色边框，浅色模式用浅灰色边框
                     },
                     CircleShape
                 )
@@ -1272,16 +1272,19 @@ private fun HoldToCallButton(
             if (isCalling) {
                 GlowEffect(
                     modifier = Modifier.size(80.dp),
-                    color = Color(0xFFFF9800),
+                    color = if (isDarkMode) Color(0xFFFF7043) else Color(0xFFFF9800),
                     intensity = 0.8f
                 )
             }
             
-            // 内层白色圆圈，类似录音按钮
+            // 内层圆圈，根据主题调整颜色
             Box(
                 modifier = Modifier
-                    .size(60.dp)  // 增加白色圆圈大小
-                    .background(Color.White, CircleShape)
+                    .size(60.dp)  // 增加圆圈大小
+                    .background(
+                        if (isDarkMode) Color(0xFF2C2C2C) else Color(0xFFF5F5F5), 
+                        CircleShape
+                    )
             )
         }
         

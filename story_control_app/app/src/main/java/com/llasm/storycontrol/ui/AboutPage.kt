@@ -18,6 +18,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
+import com.llasm.storycontrol.data.ThemeColors
+import com.llasm.storycontrol.data.FontStyle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

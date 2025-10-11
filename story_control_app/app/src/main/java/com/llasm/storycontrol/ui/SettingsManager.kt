@@ -7,6 +7,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.llasm.storycontrol.data.ThemeColors
+import com.llasm.storycontrol.data.FontStyle
+import com.llasm.storycontrol.data.ThemeManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,19 +61,9 @@ object SettingsManager {
         }
     }
     
-    // 获取当前主题颜色
+    // 获取当前主题颜色 - 现在使用ThemeManager
     fun getThemeColors(context: Context? = null): ThemeColors {
-        // 如果未初始化，使用系统主题
-        if (!isInitialized && context != null) {
-            val systemIsDark = isSystemDarkMode(context)
-            return if (systemIsDark) ThemeColors.Dark else ThemeColors.Light
-        }
-        
-        return if (_isDarkMode.value) {
-            ThemeColors.Dark
-        } else {
-            ThemeColors.Light
-        }
+        return ThemeManager.getThemeColors(_isDarkMode.value)
     }
     
     // 获取系统主题状态
@@ -107,100 +100,8 @@ object SettingsManager {
         }
     }
     
-    // 获取当前字体样式
+    // 获取当前字体样式 - 现在使用ThemeManager
     fun getFontStyle(): FontStyle {
-        return when (_fontSize.value) {
-            "小" -> FontStyle.Small
-            "大" -> FontStyle.Large
-            else -> FontStyle.Medium
-        }
-    }
-}
-
-/**
- * 主题颜色配置
- */
-data class ThemeColors(
-    val background: Color,
-    val surface: Color,
-    val primary: Color,
-    val onBackground: Color,
-    val onSurface: Color,
-    val onPrimary: Color,
-    val cardBackground: Color,
-    val inputBackground: Color,
-    val textPrimary: Color,
-    val textSecondary: Color,
-    val cardBorder: Color
-) {
-    companion object {
-        val Light = ThemeColors(
-            background = Color(0xFFF5F5F5),
-            surface = Color.White,
-            primary = Color(0xFF07C160),
-            onBackground = Color(0xFF333333),
-            onSurface = Color(0xFF333333),
-            onPrimary = Color.White,
-            cardBackground = Color.White,
-            inputBackground = Color(0xFFF7F7F7),
-            textPrimary = Color(0xFF333333),
-            textSecondary = Color(0xFF666666),
-            cardBorder = Color(0xFFE0E0E0)
-        )
-        
-        val Dark = ThemeColors(
-            background = Color(0xFF121212),
-            surface = Color(0xFF1E1E1E),
-            primary = Color(0xFF07C160),
-            onBackground = Color.White,
-            onSurface = Color.White,
-            onPrimary = Color.White,
-            cardBackground = Color(0xFF2D2D2D),
-            inputBackground = Color(0xFF3A3A3A),
-            textPrimary = Color.White,
-            textSecondary = Color(0xFFB0B0B0),
-            cardBorder = Color(0xFF404040)
-        )
-    }
-}
-
-/**
- * 字体样式配置
- */
-data class FontStyle(
-    val bodySmall: TextStyle,
-    val bodyMedium: TextStyle,
-    val bodyLarge: TextStyle,
-    val titleMedium: TextStyle,
-    val headlineSmall: TextStyle,
-    val iconSize: Float
-) {
-    companion object {
-        val Small = FontStyle(
-            bodySmall = TextStyle(fontSize = 10.sp, lineHeight = 14.sp),
-            bodyMedium = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
-            bodyLarge = TextStyle(fontSize = 14.sp, lineHeight = 18.sp),
-            titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
-            headlineSmall = TextStyle(fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold),
-            iconSize = 20f
-        )
-        
-        val Medium = FontStyle(
-            bodySmall = TextStyle(fontSize = 14.sp, lineHeight = 18.sp),
-            bodyMedium = TextStyle(fontSize = 16.sp, lineHeight = 20.sp),
-            bodyLarge = TextStyle(fontSize = 18.sp, lineHeight = 22.sp),
-            titleMedium = TextStyle(fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium),
-            headlineSmall = TextStyle(fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold),
-            iconSize = 28f
-        )
-        
-        val Large = FontStyle(
-            bodySmall = TextStyle(fontSize = 18.sp, lineHeight = 22.sp),
-            bodyMedium = TextStyle(fontSize = 20.sp, lineHeight = 24.sp),
-            bodyLarge = TextStyle(fontSize = 22.sp, lineHeight = 26.sp),
-            titleMedium = TextStyle(fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Medium),
-            headlineSmall = TextStyle(fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold),
-            iconSize = 36f
-        )
+        return ThemeManager.getFontStyle()
     }
 }

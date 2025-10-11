@@ -7,6 +7,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import com.llasm.storycontrol.network.StoryApiService
 import com.llasm.storycontrol.network.*
+import com.llasm.storycontrol.config.ServerConfig
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -194,7 +195,7 @@ class ReadingProgressManager private constructor(context: Context) {
                         storyTitle = storyTitle,
                         currentPosition = currentPosition,
                         totalLength = totalLength,
-                        readingProgress = result.data.progressPercentage,
+                        readingProgress = result.data.progressPercentage.toFloat(),
                         isCompleted = result.data.isCompleted,
                         startTime = null,
                         lastReadTime = null,
@@ -233,15 +234,31 @@ class ReadingProgressManager private constructor(context: Context) {
             
             when (result) {
                 is ApiResult.Success -> {
-                    _readingProgress.value = result.data.progress
+                    // 转换网络响应为本地数据类
+                    val localProgressList = result.data.progress.map { networkProgress ->
+                        ReadingProgress(
+                            storyId = networkProgress.storyId,
+                            storyTitle = networkProgress.storyTitle,
+                            currentPosition = networkProgress.currentPosition,
+                            totalLength = networkProgress.totalLength,
+                            readingProgress = networkProgress.readingProgress.toFloat(),
+                            isCompleted = networkProgress.isCompleted,
+                            startTime = networkProgress.startTime?.toLongOrNull(),
+                            lastReadTime = networkProgress.lastReadTime?.toLongOrNull(),
+                            completionTime = networkProgress.completionTime?.toLongOrNull(),
+                            readingDurationSeconds = networkProgress.readingDurationSeconds.toLong()
+                        )
+                    }
+                    
+                    _readingProgress.value = localProgressList
                     
                     // 更新本地缓存
-                    result.data.progress.forEach { progress ->
+                    localProgressList.forEach { progress ->
                         localProgressCache[progress.storyId] = progress
                     }
                     
                     Log.d(TAG, "获取阅读进度成功: ${result.data.count} 条记录")
-                    Result.success(result.data.progress)
+                    Result.success(localProgressList)
                 }
                 is ApiResult.Error -> {
                     Log.e(TAG, "获取阅读进度失败: ${result.message}")
@@ -319,6 +336,26 @@ class ReadingProgressManager private constructor(context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "记录故事交互异常", e)
         }
+    }
+    
+    /**
+     * 记录故事交互
+     */
+    suspend fun recordStoryInteraction(
+        storyId: String,
+        interactionType: String,
+        interactionData: Map<String, Any>? = null
+    ) {
+        val userId = getCurrentUserId() ?: return
+        val session = _currentSession.value
+        logStoryInteraction(
+            userId = userId,
+            storyId = storyId,
+            interactionType = interactionType,
+            sessionId = session?.sessionId,
+            deviceInfo = "Android",
+            interactionData = interactionData
+        )
     }
     
     /**
@@ -468,7 +505,7 @@ class ReadingProgressManager private constructor(context: Context) {
     /**
      * 开始文本阅读（兼容性）
      */
-    suspend fun startTextReading(storyId: String, content: String) {
+    suspend fun startTextReading(storyId: String, content: String, audioDurationMs: Long = 0L) {
         // 检查故事是否已经完成，如果已完成则不重新开始阅读
         val isAlreadyCompleted = isStoryCompleted(storyId)
         if (isAlreadyCompleted) {
@@ -477,7 +514,15 @@ class ReadingProgressManager private constructor(context: Context) {
         }
         
         val startTime = System.currentTimeMillis()
-        android.util.Log.d("ReadingProgressManager", "开始文本阅读: $storyId")
+        
+        // 计算最短阅读时间：如果提供了音频时长，则使用音频时长的2/3，否则使用默认30秒
+        val minimumReadingTime = if (audioDurationMs > 0) {
+            (audioDurationMs * 2 / 3).toLong()
+        } else {
+            30000L // 默认30秒
+        }
+        
+        android.util.Log.d("ReadingProgressManager", "开始文本阅读: $storyId, startTime=$startTime, 音频时长=${audioDurationMs}ms, 最短阅读时长=${minimumReadingTime}ms")
         (textReadingState as MutableStateFlow).value = TextReadingState(
             isReading = true,
             currentPosition = 0,
@@ -487,82 +532,117 @@ class ReadingProgressManager private constructor(context: Context) {
             startTime = startTime,
             lastScrollTime = startTime,
             isIdle = false,
-            minimumReadingTime = 30000L // 30秒最少阅读时长
+            minimumReadingTime = minimumReadingTime
         )
+        android.util.Log.d("ReadingProgressManager", "文本阅读状态已设置: startTime=${(textReadingState as MutableStateFlow).value.startTime}")
     }
     
     /**
-     * 更新文本阅读进度（兼容性）
+     * 恢复文本阅读（从空闲状态恢复）
      */
-    suspend fun updateTextReadingProgress(storyId: String, position: Int, totalLength: Int, storyTitle: String = "故事标题") {
+    suspend fun resumeTextReading(storyId: String, content: String) {
         val currentState = (textReadingState as MutableStateFlow).value
-        // 确保位置不会后退，只允许前进，但不能超过总长度
-        val newPosition = maxOf(position, currentState.currentPosition).coerceAtMost(totalLength)
-        val progress = if (totalLength > 0) {
-            (newPosition.toFloat() / totalLength.toFloat()).coerceIn(0f, 1f)
-        } else 0f
+        if (!currentState.isReading) {
+            val currentTime = System.currentTimeMillis()
+            android.util.Log.d("ReadingProgressManager", "恢复文本阅读: $storyId")
+            (textReadingState as MutableStateFlow).value = currentState.copy(
+                isReading = true,
+                startTime = if (currentState.startTime == 0L) currentTime else currentState.startTime, // 如果startTime为0，则设置当前时间
+                lastScrollTime = currentTime,
+                isIdle = false
+            )
+        }
+    }
+    
+    /**
+     * 更新文本阅读进度（优化版 - 确保进度不会后退）
+     */
+    suspend fun updateTextReadingProgress(storyId: String, position: Int, totalLength: Int, storyTitle: String = "故事标题", isUserScroll: Boolean = true) {
+        val currentState = (textReadingState as MutableStateFlow).value
+        if (!currentState.isReading) {
+            android.util.Log.d("ReadingProgressManager", "文本阅读状态未激活，跳过更新")
+            return
+        }
         
-        // 确保进度不会后退
-        val baseProgress = maxOf(progress, currentState.progress)
+        // 如果已经空闲，直接返回，不进行任何更新
+        if (currentState.isIdle) {
+            android.util.Log.d("ReadingProgressManager", "检测到空闲状态，跳过进度更新")
+            return
+        }
         
-        // 根据阅读时长限制进度：只有达到最少阅读时长时才能达到100%
         val currentTime = System.currentTimeMillis()
         val timeSinceLastScroll = currentTime - currentState.lastScrollTime
         val isIdle = timeSinceLastScroll > 5000L // 5秒空闲检测
         
-        // 计算阅读时长：累计时长，空闲时停止增长
+        // 计算阅读时长：基于开始时间的总时长，空闲时停止增长
         val readingDuration = if (currentState.startTime > 0) {
             if (!isIdle) {
-                // 非空闲状态：基于当前累计时长加上新的增长时长
-                val timeSinceLastUpdate = currentTime - currentState.lastScrollTime
-                val newDuration = currentState.readingDuration + timeSinceLastUpdate
-                android.util.Log.d("ReadingProgressManager", "非空闲状态时长计算: 当前累计=${currentState.readingDuration}ms, 新增=${timeSinceLastUpdate}ms, 总计=${newDuration}ms")
-                newDuration
+                currentTime - currentState.startTime
             } else {
-                // 空闲状态：保持当前累计时长，不继续增长
-                android.util.Log.d("ReadingProgressManager", "空闲状态时长保持: ${currentState.readingDuration}ms")
                 currentState.readingDuration
             }
         } else {
             0L
         }
         
+        // 计算滚动进度（基于用户滚动位置）
+        val scrollPosition = position.coerceAtMost(totalLength)
+        val scrollProgress = if (totalLength > 0) {
+            (scrollPosition.toFloat() / totalLength.toFloat()).coerceIn(0f, 1f)
+        } else 0f
+        
+        // 计算时间进度（基于阅读时长）
+        val timeProgress = if (currentState.minimumReadingTime > 0) {
+            val timeRatio = readingDuration.toFloat() / currentState.minimumReadingTime.toFloat()
+            (timeRatio * 0.8f).coerceAtMost(0.8f) // 时间进度最多80%，直到时长满足
+        } else 0f
+        
+        // 综合进度：取滚动进度和时间进度的最大值，确保进度不会后退
+        val combinedProgress = maxOf(scrollProgress, timeProgress, currentState.progress)
+        
         // 如果时长未达到要求，限制最大进度
         val maxAllowedProgress = if (readingDuration >= currentState.minimumReadingTime) {
             1.0f // 时长满足，允许100%
         } else {
-            // 时长未满足，根据时长比例限制进度
-            val timeRatio = readingDuration.toFloat() / currentState.minimumReadingTime.toFloat()
-            (timeRatio * 0.8f).coerceAtMost(0.8f) // 最多80%，直到时长满足
+            combinedProgress.coerceAtMost(0.8f) // 时长未满足，最多80%
         }
         
-        val finalProgress = baseProgress.coerceAtMost(maxAllowedProgress)
+        val finalProgress = maxOf(combinedProgress, currentState.progress).coerceAtMost(maxAllowedProgress)
         
-        // 只有当进度有实际增长时才更新
-        if (newPosition > currentState.currentPosition || finalProgress > currentState.progress) {
-            
-            // 如果位置没有变化，只更新时长，不更新位置
-            val shouldUpdatePosition = newPosition > currentState.currentPosition || finalProgress > currentState.progress
-            val finalPosition = if (shouldUpdatePosition) newPosition else currentState.currentPosition
-            val finalProgressValue = if (shouldUpdatePosition) finalProgress else currentState.progress
-            
-            android.util.Log.d("ReadingProgressManager", "更新文本阅读进度: $storyId, 位置: $finalPosition (原: $position), 总长度: $totalLength, 进度: ${(finalProgressValue * 100).toInt()}%, 阅读时长: ${readingDuration}ms, 空闲: $isIdle, 更新位置: $shouldUpdatePosition")
+        // 如果检测到空闲状态，立即更新状态并返回
+        if (isIdle && !currentState.isIdle) {
+            android.util.Log.d("ReadingProgressManager", "检测到空闲状态，立即更新状态并返回")
             (textReadingState as MutableStateFlow).value = TextReadingState(
-                isReading = true,
-                currentPosition = finalPosition,
-                totalLength = totalLength,
-                progress = finalProgressValue,
-                readingDuration = readingDuration,
+                isReading = false, // 空闲时停止阅读状态
+                currentPosition = currentState.currentPosition,
+                totalLength = currentState.totalLength,
+                progress = currentState.progress,
+                readingDuration = currentState.readingDuration,
                 startTime = currentState.startTime,
-                lastScrollTime = if (shouldUpdatePosition) currentTime else currentState.lastScrollTime, // 只有位置更新时才更新滚动时间
-                isIdle = isIdle,
+                lastScrollTime = currentState.lastScrollTime,
+                isIdle = true,
                 minimumReadingTime = currentState.minimumReadingTime
             )
-            
-            // 同步到数据库
-            syncProgressToDatabase(storyId, newPosition, totalLength, finalProgress, storyTitle)
-        } else {
-            android.util.Log.d("ReadingProgressManager", "跳过进度更新: 位置未增长 (当前: ${currentState.currentPosition}, 新: $newPosition), 进度未增长 (当前: ${(currentState.progress * 100).toInt()}%, 新: ${(finalProgress * 100).toInt()}%)")
+            return
+        }
+        
+        // 更新状态
+        android.util.Log.d("ReadingProgressManager", "更新文本阅读进度: $storyId, 滚动位置: $scrollPosition, 滚动进度: ${(scrollProgress * 100).toInt()}%, 时间进度: ${(timeProgress * 100).toInt()}%, 综合进度: ${(finalProgress * 100).toInt()}%, 阅读时长: ${readingDuration}ms, 空闲: $isIdle")
+        (textReadingState as MutableStateFlow).value = TextReadingState(
+            isReading = !isIdle, // 空闲时停止阅读状态
+            currentPosition = scrollPosition,
+            totalLength = totalLength,
+            progress = finalProgress,
+            readingDuration = readingDuration,
+            startTime = currentState.startTime,
+            lastScrollTime = if (isUserScroll) currentTime else currentState.lastScrollTime,
+            isIdle = isIdle,
+            minimumReadingTime = currentState.minimumReadingTime
+        )
+        
+        // 同步到数据库（只在位置或进度有增长时）
+        if (isUserScroll && (scrollPosition > currentState.currentPosition || finalProgress > currentState.progress)) {
+            syncProgressToDatabase(storyId, scrollPosition, totalLength, finalProgress, storyTitle)
         }
     }
     
@@ -630,7 +710,7 @@ class ReadingProgressManager private constructor(context: Context) {
             storyTitle = storyTitle,
             currentPosition = 0,
             totalLength = 0,
-            readingProgress = 1.0,
+            readingProgress = 1.0f,
             isCompleted = true,
             startTime = null,
             lastReadTime = null,
@@ -640,8 +720,8 @@ class ReadingProgressManager private constructor(context: Context) {
         
         localProgressCache[storyId] = currentProgress.copy(
             isCompleted = true,
-            readingProgress = 1.0,
-            completionTime = System.currentTimeMillis().toString()
+            readingProgress = 1.0f,
+            completionTime = System.currentTimeMillis()
         )
         
         // 更新StateFlow
@@ -666,7 +746,7 @@ class ReadingProgressManager private constructor(context: Context) {
         }
         
         // 同步完成状态到数据库
-        syncCompletionToDatabase(storyId, storyTitle)
+        syncCompletionToDatabase(storyId, storyTitle, "text")
         
         // 重新从数据库加载数据以确保统计信息正确
         loadReadingProgressFromDatabase()
@@ -678,7 +758,16 @@ class ReadingProgressManager private constructor(context: Context) {
      * 检查故事是否完成（兼容性）
      */
     fun isStoryCompleted(storyId: String): Boolean {
-        return localProgressCache[storyId]?.isCompleted ?: false
+        val result = localProgressCache[storyId]?.isCompleted ?: false
+        android.util.Log.d("ReadingProgressManager", "检查故事完成状态: $storyId, 缓存数据=${localProgressCache[storyId]}, 结果=$result")
+        return result
+    }
+    
+    /**
+     * 获取文本阅读状态
+     */
+    fun getTextReadingState(storyId: String): TextReadingState? {
+        return localProgressCache[storyId]?.textReadingState
     }
     
     /**
@@ -755,22 +844,56 @@ class ReadingProgressManager private constructor(context: Context) {
     }
     
     /**
+     * 完成故事阅读API调用
+     */
+    private suspend fun completeStoryReading(
+        userId: String,
+        storyId: String,
+        storyTitle: String,
+        completionMode: String,
+        deviceInfo: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            // 使用现有的StoryApiService来完成阅读
+            val result = StoryApiService.completeStoryReading(
+                userId = userId,
+                storyId = storyId,
+                storyTitle = storyTitle,
+                completionMode = completionMode,
+                deviceInfo = deviceInfo
+            )
+            
+            when (result) {
+                is ApiResult.Success -> {
+                    android.util.Log.d("ReadingProgressManager", "完成阅读API调用成功: $storyId")
+                    Result.success(Unit)
+                }
+                is ApiResult.Error -> {
+                    android.util.Log.e("ReadingProgressManager", "完成阅读API调用失败: ${result.message}")
+                    Result.failure(Exception("完成阅读API调用失败: ${result.message}"))
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ReadingProgressManager", "完成阅读API调用异常", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 同步完成阅读到数据库
      */
-    private suspend fun syncCompletionToDatabase(storyId: String, storyTitle: String = "故事标题") {
+    private suspend fun syncCompletionToDatabase(storyId: String, storyTitle: String = "故事标题", completionMode: String = "text") {
         try {
             val userId = getCurrentUserId() ?: return
             
-            android.util.Log.e("ReadingProgressManager", "开始同步完成阅读: 用户=$userId, 故事=$storyId")
+            android.util.Log.e("ReadingProgressManager", "开始同步完成阅读: 用户=$userId, 故事=$storyId, 模式=$completionMode")
             
-            // 更新阅读进度为完成状态
-            // 传递currentPosition = totalLength来确保进度为100%
-            val result = updateReadingProgress(
+            // 使用新的完成阅读API
+            val result = completeStoryReading(
                 userId = userId,
                         storyId = storyId,
                 storyTitle = storyTitle,
-                currentPosition = 100, // 设置为100来确保进度为100%
-                totalLength = 100,     // 设置为100来确保进度为100%
+                completionMode = completionMode,
                 deviceInfo = "Android App"
             )
             
@@ -826,10 +949,10 @@ class ReadingProgressManager private constructor(context: Context) {
             
         } catch (e: Exception) {
             android.util.Log.e("ReadingProgressManager", "从数据库加载阅读进度异常", e)
-        }
     }
-    
-    /**
+}
+
+/**
      * 初始化时加载数据
      */
     fun initialize() {
@@ -862,6 +985,24 @@ data class AudioReadingState(
     val currentPosition: Int = 0,
     val totalLength: Int = 0,
     val progress: Float = 0f
+)
+
+/**
+ * 阅读进度数据类
+ */
+data class ReadingProgress(
+    val storyId: String,
+    val storyTitle: String,
+    val currentPosition: Int = 0,
+    val totalLength: Int = 0,
+    val readingProgress: Float = 0f,
+    val isCompleted: Boolean = false,
+    val startTime: Long? = null,
+    val lastReadTime: Long? = null,
+    val completionTime: Long? = null,
+    val readingDurationSeconds: Long = 0,
+    val textReadingState: TextReadingState? = null,
+    val audioReadingState: AudioReadingState? = null
 )
 
 /**

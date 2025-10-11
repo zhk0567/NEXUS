@@ -257,12 +257,12 @@ object StoryApiService {
             
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 val jsonResponse = JSONObject(response)
-                val progressList = mutableListOf<ReadingProgress>()
+                val progressList = mutableListOf<NetworkReadingProgress>()
                 
                 val progressArray = jsonResponse.getJSONArray("progress")
                 for (i in 0 until progressArray.length()) {
                     val progressJson = progressArray.getJSONObject(i)
-                    val progress = ReadingProgress(
+                    val progress = NetworkReadingProgress(
                         storyId = progressJson.getString("story_id"),
                         storyTitle = progressJson.getString("story_title"),
                         currentPosition = progressJson.getInt("current_position"),
@@ -452,6 +452,157 @@ object StoryApiService {
             ApiResult.Error(e.message ?: "网络请求失败")
         }
     }
+    
+    /**
+     * 完成故事阅读
+     */
+    suspend fun completeStoryReading(
+        userId: String,
+        storyId: String,
+        storyTitle: String,
+        completionMode: String,
+        deviceInfo: String = ""
+    ): ApiResult<ApiResponse> = withContext(Dispatchers.IO) {
+        try {
+            val url = URL(ServerConfig.getApiUrl("api/story/complete"))
+            val connection = url.openConnection() as HttpURLConnection
+            
+            connection.apply {
+                requestMethod = "POST"
+                doOutput = true
+                doInput = true
+                connectTimeout = TIMEOUT
+                readTimeout = TIMEOUT
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+            }
+            
+            val requestBody = JSONObject().apply {
+                put("user_id", userId)
+                put("story_id", storyId)
+                put("story_title", storyTitle)
+                put("completion_mode", completionMode)
+                put("device_info", deviceInfo)
+            }
+            
+            val outputStream = connection.outputStream
+            val writer = OutputStreamWriter(outputStream, "UTF-8")
+            writer.write(requestBody.toString())
+            writer.flush()
+            writer.close()
+            outputStream.close()
+            
+            val responseCode = connection.responseCode
+            Log.d(TAG, "完成阅读API响应码: $responseCode")
+            
+            val response = if (responseCode == HttpURLConnection.HTTP_OK) {
+                val inputStream = connection.inputStream
+                val reader = BufferedReader(InputStreamReader(inputStream, "UTF-8"))
+                val responseBody = reader.readText()
+                reader.close()
+                inputStream.close()
+                
+                val jsonResponse = JSONObject(responseBody)
+                Log.d(TAG, "完成阅读API响应: $responseBody")
+                
+                if (jsonResponse.optBoolean("success", false)) {
+                    ApiResult.Success(ApiResponse(
+                        success = true,
+                        message = jsonResponse.optString("message", "完成阅读成功")
+                    ))
+                } else {
+                    val errorMessage = jsonResponse.optString("error", "完成阅读失败")
+                    Log.e(TAG, "完成阅读API返回错误: $errorMessage")
+                    ApiResult.Error(errorMessage)
+                }
+            } else {
+                val errorStream = connection.errorStream
+                val errorBody = if (errorStream != null) {
+                    val reader = BufferedReader(InputStreamReader(errorStream, "UTF-8"))
+                    val error = reader.readText()
+                    reader.close()
+                    errorStream.close()
+                    error
+                } else {
+                    "HTTP错误: $responseCode"
+                }
+                Log.e(TAG, "完成阅读API调用失败: $responseCode, $errorBody")
+                ApiResult.Error("完成阅读失败: $errorBody")
+            }
+            
+            connection.disconnect()
+            response
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "完成阅读API调用异常", e)
+            ApiResult.Error("完成阅读失败: ${e.message}")
+        }
+    }
+    
+    /**
+     * 获取活跃故事列表
+     */
+    suspend fun getActiveStories(): ApiResult<StoriesListResponse> = withContext(Dispatchers.IO) {
+        try {
+            val url = URL(ServerConfig.getApiUrl("api/stories/active"))
+            val connection = url.openConnection() as HttpURLConnection
+            
+            connection.apply {
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "Android App")
+                connectTimeout = TIMEOUT
+                readTimeout = TIMEOUT
+            }
+            
+            Log.d(TAG, "获取活跃故事列表请求URL: $url")
+            
+            val responseCode = connection.responseCode
+            Log.d(TAG, "获取活跃故事列表响应码: $responseCode")
+            
+            val inputStream = if (responseCode == HttpURLConnection.HTTP_OK) {
+                connection.inputStream
+            } else {
+                connection.errorStream
+            }
+            
+            val response = BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
+            Log.d(TAG, "获取活跃故事列表响应: $response")
+            
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val jsonResponse = JSONObject(response)
+                val storiesList = mutableListOf<Story>()
+                
+                val storiesArray = jsonResponse.getJSONArray("stories")
+                for (i in 0 until storiesArray.length()) {
+                    val storyJson = storiesArray.getJSONObject(i)
+                    val story = Story(
+                        id = storyJson.getString("id"),
+                        title = storyJson.getString("title"),
+                        content = storyJson.getString("content"),
+                        audioFilePath = storyJson.optString("audio_file_path", null),
+                        audioDurationSeconds = storyJson.optInt("audio_duration_seconds", 0)
+                    )
+                    storiesList.add(story)
+                }
+                
+                val storiesListResponse = StoriesListResponse(
+                    success = jsonResponse.getBoolean("success"),
+                    stories = storiesList,
+                    total = jsonResponse.getInt("total")
+                )
+                ApiResult.Success(storiesListResponse)
+            } else {
+                val errorJson = JSONObject(response)
+                ApiResult.Error(errorJson.getString("error"))
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "获取活跃故事列表失败: ${e.javaClass.simpleName}", e)
+            Log.e(TAG, "错误消息: ${e.message}")
+            ApiResult.Error(e.message ?: "网络请求失败: ${e.javaClass.simpleName}")
+        }
+    }
 }
 
 /**
@@ -490,9 +641,9 @@ data class ReadingProgressResponse(
 )
 
 /**
- * 阅读进度
+ * 阅读进度（网络响应）
  */
-data class ReadingProgress(
+data class NetworkReadingProgress(
     val storyId: String,
     val storyTitle: String,
     val currentPosition: Int,
@@ -510,7 +661,7 @@ data class ReadingProgress(
  */
 data class ReadingProgressListResponse(
     val success: Boolean,
-    val progress: List<ReadingProgress>,
+    val progress: List<NetworkReadingProgress>,
     val count: Int
 )
 
@@ -553,4 +704,24 @@ data class ReadingStatisticsResponse(
     val success: Boolean,
     val statistics: ReadingStatistics,
     val periodDays: Int
+)
+
+/**
+ * 故事数据类
+ */
+data class Story(
+    val id: String,
+    val title: String,
+    val content: String,
+    val audioFilePath: String?,
+    val audioDurationSeconds: Int
+)
+
+/**
+ * 故事列表响应
+ */
+data class StoriesListResponse(
+    val success: Boolean,
+    val stories: List<Story>,
+    val total: Int
 )

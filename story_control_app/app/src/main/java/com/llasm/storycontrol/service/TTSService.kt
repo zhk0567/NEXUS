@@ -303,4 +303,61 @@ class TTSService(private val context: Context) {
     ) {
         playStoryAudio(storyId, storyText, onPlayStart, onPlayComplete, onError, onProgressUpdate)
     }
+    
+    /**
+     * 获取音频时长（不播放，仅获取时长信息）
+     */
+    fun getAudioDuration(storyId: String, onDurationReady: (Int) -> Unit) {
+        try {
+            Log.d(TAG, "获取音频时长: $storyId")
+            
+            // 从assets加载预录制的音频文件
+            val audioData = loadPreRecordedAudio(storyId)
+            if (audioData == null) {
+                Log.e(TAG, "预录制音频文件不存在: $storyId")
+                onDurationReady(0)
+                return
+            }
+            
+            // 检查是否是有效的音频文件
+            if (audioData.size < 1000) {
+                Log.e(TAG, "音频文件太小，可能是占位符文件: $storyId")
+                onDurationReady(0)
+                return
+            }
+            
+            // 保存到临时文件并获取时长
+            val tempFile = saveAudioToTempFile(audioData, storyId)
+            if (tempFile == null) {
+                Log.e(TAG, "保存临时音频文件失败: $storyId")
+                onDurationReady(0)
+                return
+            }
+            
+            // 创建MediaPlayer仅用于获取时长
+            val tempMediaPlayer = MediaPlayer().apply {
+                setDataSource(tempFile.absolutePath)
+                setOnPreparedListener { mediaPlayer ->
+                    val duration = mediaPlayer.duration
+                    Log.d(TAG, "音频时长获取成功: ${duration}ms")
+                    onDurationReady(duration)
+                    // 清理资源
+                    mediaPlayer.release()
+                    tempFile.delete()
+                }
+                setOnErrorListener { mediaPlayer, what, extra ->
+                    Log.e(TAG, "获取音频时长失败: what=$what, extra=$extra")
+                    onDurationReady(0)
+                    mediaPlayer.release()
+                    tempFile.delete()
+                    true
+                }
+                prepareAsync()
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "获取音频时长失败", e)
+            onDurationReady(0)
+        }
+    }
 }

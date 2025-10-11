@@ -211,6 +211,52 @@
             margin: 20px 0;
         }
         
+        .password-status {
+            display: inline-block;
+        }
+        
+        .password-status .loading-text {
+            color: #666;
+            font-style: italic;
+        }
+        
+        .password-info {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        
+        .password-info p {
+            margin: 0;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        
+        .password-display {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .password-text {
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: #495057;
+        }
+        
+        .no-password {
+            color: #6c757d;
+            font-style: italic;
+        }
+        
+        .error-text {
+            color: #dc3545;
+            font-size: 0.9rem;
+        }
+        
+        
         .pagination {
             display: flex;
             justify-content: center;
@@ -635,6 +681,7 @@
                 <div class="tab active" onclick="switchTab('overview')">📊 概览</div>
                 <div class="tab" onclick="switchTab('users')">👥 用户管理</div>
                 <div class="tab" onclick="switchTab('progress')">📖 阅读进度</div>
+                <div class="tab" onclick="switchTab('stories')">📚 故事管理</div>
             </div>
             
             <!-- 概览标签页 -->
@@ -666,7 +713,7 @@
                         <thead>
                             <tr>
                                 <th>用户名</th>
-                                <th>用户ID</th>
+                                <th>密码</th>
                                 <th>注册时间</th>
                                 <th>最后登录</th>
                                 <th>总故事数</th>
@@ -702,6 +749,7 @@
                     </div>
                     <div class="bulk-actions">
                         <button class="btn btn-primary" onclick="showBulkActionModal()">批量操作</button>
+                        <button class="btn btn-danger" onclick="bulkDeleteSelected()">批量删除</button>
                         <button class="btn btn-secondary" onclick="exportProgress()">导出数据</button>
                     </div>
                 </div>
@@ -728,6 +776,48 @@
                     </table>
                 </div>
                 <div class="pagination" id="progressPagination"></div>
+            </div>
+            
+            <!-- 故事管理标签页 -->
+            <div id="stories" class="tab-content">
+                <!-- 故事管理工具栏 -->
+                <div class="toolbar">
+                    <div class="filters">
+                        <select id="storyStatusFilter" onchange="applyStoryFilters()">
+                            <option value="">所有状态</option>
+                            <option value="active">活跃</option>
+                            <option value="inactive">停用</option>
+                        </select>
+                        <input type="text" id="storySearchFilter" placeholder="搜索故事标题..." onkeyup="applyStoryFilters()">
+                    </div>
+                    <div class="bulk-actions">
+                        <button class="btn btn-primary" onclick="showCreateStoryModal()">➕ 创建故事</button>
+                        <button class="btn btn-secondary" onclick="refreshStories()">🔄 刷新</button>
+                    </div>
+                </div>
+                
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>故事ID</th>
+                                <th>标题</th>
+                                <th>状态</th>
+                                <th>音频时长</th>
+                                <th>创建时间</th>
+                                <th>更新时间</th>
+                                <th>版本</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="storiesTableBody">
+                            <tr>
+                                <td colspan="8" class="loading">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="storiesPagination"></div>
             </div>
         </div>
     </div>
@@ -836,7 +926,11 @@
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${user.username}</td>
-                    <td>${user.user_id}</td>
+                    <td>
+                        <span class="password-display" id="password-display-${user.user_id}">
+                            <span class="loading-text">加载中...</span>
+                        </span>
+                    </td>
                     <td>${formatDate(user.created_at)}</td>
                     <td>${formatDate(user.last_login_at)}</td>
                     <td>${totalStories}</td>
@@ -844,10 +938,16 @@
                     <td>${completionRate}%</td>
                     <td>
                         <button class="btn btn-primary" onclick="viewUserDetails('${user.user_id}')">查看详情</button>
+                        <button class="btn btn-warning" onclick="showPasswordModal('${user.user_id}', '${user.username}')">密码管理</button>
                     </td>
                 `;
                 tbody.appendChild(row);
             });
+            
+            // 显示用户列表后加载所有用户的密码
+            setTimeout(() => {
+                loadAllUserPasswords();
+            }, 500);
         }
         
         // 更新用户筛选下拉框
@@ -923,7 +1023,7 @@
                 const row = document.createElement('tr');
                 row.id = `progress-row-${index}`;
                 row.innerHTML = `
-                    <td><input type="checkbox" class="progress-checkbox" data-user-id="${progress.user_id}" data-story-id="${progress.story_id}"></td>
+                    <td><input type="checkbox" class="progress-checkbox" data-record-id="${progress.id}" data-user-id="${progress.user_id}" data-story-id="${progress.story_id}"></td>
                     <td>${progress.username || '未知用户'}</td>
                     <td>${progress.story_title}</td>
                     <td>${progressPercent}%</td>
@@ -937,6 +1037,7 @@
                                 `<button class="btn btn-success btn-sm" onclick="updateCompletion('${progress.user_id}', '${progress.story_id}', true)">标记完成</button>`
                             }
                             <button class="btn btn-secondary btn-sm" onclick="viewProgressDetails('${progress.user_id}', '${progress.story_id}')">详情</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteRecord(${progress.id}, '${progress.username}', '${progress.story_title}')">删除</button>
                         </div>
                     </td>
                 `;
@@ -1645,6 +1746,610 @@
                 }
             }, 30000); // 30秒刷新一次
         });
+        
+        // 删除单条记录
+        async function deleteRecord(recordId, username, storyTitle) {
+            if (!confirm(`确定要删除用户 "${username}" 的故事 "${storyTitle}" 的阅读记录吗？\n\n此操作不可撤销！`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/reading/delete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        admin_user_id: ADMIN_USER_ID,
+                        record_id: recordId
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess(data.message);
+                    // 重新加载当前页面数据
+                    if (document.getElementById('progress').classList.contains('active')) {
+                        loadProgress();
+                    }
+                } else {
+                    showError('删除失败: ' + data.error);
+                }
+            } catch (error) {
+                showError('删除失败: ' + error.message);
+            }
+        }
+        
+        // 批量删除选中的记录
+        async function bulkDeleteSelected() {
+            const checkboxes = document.querySelectorAll('.progress-checkbox:checked');
+            
+            if (checkboxes.length === 0) {
+                showError('请先选择要删除的记录');
+                return;
+            }
+            
+            const recordIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.recordId));
+            const recordCount = recordIds.length;
+            
+            if (!confirm(`确定要删除选中的 ${recordCount} 条记录吗？\n\n此操作不可撤销！`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/reading/bulk-delete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        admin_user_id: ADMIN_USER_ID,
+                        record_ids: recordIds
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess(data.message);
+                    // 重新加载当前页面数据
+                    if (document.getElementById('progress').classList.contains('active')) {
+                        loadProgress();
+                    }
+                } else {
+                    showError('批量删除失败: ' + data.error);
+                }
+            } catch (error) {
+                showError('批量删除失败: ' + error.message);
+            }
+        }
+        
+        // 获取用户密码内容
+        async function loadUserPassword(userId) {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/users/${userId}/password?admin_user_id=${ADMIN_USER_ID}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const passwordInfo = data.password_info;
+                    const passwordElement = document.getElementById(`password-display-${userId}`);
+                    if (passwordElement) {
+                        if (passwordInfo.has_password) {
+                            // 直接显示密码
+                            passwordElement.innerHTML = `<span class="password-text">${passwordInfo.password}</span>`;
+                        } else {
+                            passwordElement.innerHTML = '<span class="no-password">未设置</span>';
+                        }
+                    }
+                } else {
+                    const passwordElement = document.getElementById(`password-display-${userId}`);
+                    if (passwordElement) {
+                        passwordElement.innerHTML = '<span class="error-text">获取失败</span>';
+                    }
+                }
+            } catch (error) {
+                console.error('获取密码失败:', error);
+                const passwordElement = document.getElementById(`password-display-${userId}`);
+                if (passwordElement) {
+                    passwordElement.innerHTML = '<span class="error-text">错误</span>';
+                }
+            }
+        }
+        
+        // 显示密码管理弹窗
+        function showPasswordModal(userId, username) {
+            // 创建密码管理弹窗
+            const modalHtml = `
+                <div id="passwordModal" class="modal" style="display: block;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>密码管理 - ${username}</h3>
+                            <span class="close" onclick="closePasswordModal()">&times;</span>
+                        </div>
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label for="newPassword">新密码:</label>
+                                <input type="password" id="newPassword" placeholder="请输入新密码" minlength="6">
+                            </div>
+                            <div class="form-group">
+                                <label for="confirmPassword">确认密码:</label>
+                                <input type="password" id="confirmPassword" placeholder="请再次输入新密码" minlength="6">
+                            </div>
+                            <div class="password-info" id="passwordInfo">
+                                <p>密码要求：至少6位字符</p>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-primary" onclick="resetPassword('${userId}')">重置密码</button>
+                            <button class="btn btn-secondary" onclick="closePasswordModal()">取消</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 添加弹窗到页面
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+        
+        // 关闭密码管理弹窗
+        function closePasswordModal() {
+            const modal = document.getElementById('passwordModal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+        
+        // 重置用户密码
+        async function resetPassword(userId) {
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            
+            // 验证密码
+            if (!newPassword || newPassword.length < 6) {
+                showError('密码长度至少6位');
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                showError('两次输入的密码不一致');
+                return;
+            }
+            
+            if (!confirm(`确定要重置用户 ${userId} 的密码吗？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/users/${userId}/password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        admin_user_id: ADMIN_USER_ID,
+                        new_password: newPassword
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess(data.message);
+                    closePasswordModal();
+                    // 重新检查密码状态
+                    checkPasswordStatus(userId);
+                } else {
+                    showError('密码重置失败: ' + data.error);
+                }
+            } catch (error) {
+                showError('密码重置失败: ' + error.message);
+            }
+        }
+        
+        
+        // 为所有用户加载密码
+        async function loadAllUserPasswords() {
+            const passwordElements = document.querySelectorAll('.password-display');
+            for (const element of passwordElements) {
+                const userId = element.id.replace('password-display-', '');
+                await loadUserPassword(userId);
+                // 添加延迟避免请求过于频繁
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+        
+        // ==================== 故事管理功能 ====================
+        
+        let storiesData = [];
+        let filteredStories = [];
+        
+        // 加载故事列表
+        async function loadStories() {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/stories?include_inactive=true`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    storiesData = data.stories;
+                    filteredStories = [...storiesData];
+                    renderStoriesTable();
+                } else {
+                    showError('加载故事列表失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('加载故事列表失败:', error);
+                showError('加载故事列表失败: ' + error.message);
+            }
+        }
+        
+        // 渲染故事表格
+        function renderStoriesTable() {
+            const tbody = document.getElementById('storiesTableBody');
+            if (!tbody) return;
+            
+            if (filteredStories.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="loading">暂无故事数据</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = filteredStories.map(story => `
+                <tr>
+                    <td>${story.story_id}</td>
+                    <td>${story.title}</td>
+                    <td>
+                        <span class="status-badge ${story.is_active ? 'status-completed' : 'status-incomplete'}">
+                            ${story.is_active ? '活跃' : '停用'}
+                        </span>
+                    </td>
+                    <td>${story.audio_duration_seconds ? story.audio_duration_seconds + '秒' : '无'}</td>
+                    <td>${new Date(story.created_at).toLocaleString()}</td>
+                    <td>${new Date(story.updated_at).toLocaleString()}</td>
+                    <td>v${story.version}</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" onclick="editStory('${story.story_id}')">编辑</button>
+                        <button class="btn btn-sm ${story.is_active ? 'btn-warning' : 'btn-success'}" 
+                                onclick="${story.is_active ? 'deactivateStory' : 'activateStory'}('${story.story_id}')">
+                            ${story.is_active ? '停用' : '激活'}
+                        </button>
+                        <button class="btn btn-sm btn-info" onclick="viewStoryDetails('${story.story_id}')">详情</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        // 应用故事筛选
+        function applyStoryFilters() {
+            const statusFilter = document.getElementById('storyStatusFilter').value;
+            const searchFilter = document.getElementById('storySearchFilter').value.toLowerCase();
+            
+            filteredStories = storiesData.filter(story => {
+                const matchesStatus = !statusFilter || 
+                    (statusFilter === 'active' && story.is_active) ||
+                    (statusFilter === 'inactive' && !story.is_active);
+                
+                const matchesSearch = !searchFilter || 
+                    story.title.toLowerCase().includes(searchFilter) ||
+                    story.story_id.toLowerCase().includes(searchFilter);
+                
+                return matchesStatus && matchesSearch;
+            });
+            
+            renderStoriesTable();
+        }
+        
+        // 刷新故事列表
+        function refreshStories() {
+            loadStories();
+        }
+        
+        // 显示创建故事弹窗
+        function showCreateStoryModal() {
+            const modalHtml = `
+                <div id="createStoryModal" class="modal" style="display: block;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2>创建新故事</h2>
+                            <span class="close" onclick="closeModal('createStoryModal')">&times;</span>
+                        </div>
+                        <div class="modal-body">
+                            <form id="createStoryForm">
+                                <div class="form-group">
+                                    <label for="newStoryId">故事ID:</label>
+                                    <input type="text" id="newStoryId" required placeholder="例如: 2024-01-03">
+                                </div>
+                                <div class="form-group">
+                                    <label for="newStoryTitle">故事标题:</label>
+                                    <input type="text" id="newStoryTitle" required placeholder="输入故事标题">
+                                </div>
+                                <div class="form-group">
+                                    <label for="newStoryContent">故事内容:</label>
+                                    <textarea id="newStoryContent" required rows="10" placeholder="输入故事内容..."></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="newAudioPath">音频文件路径:</label>
+                                    <input type="text" id="newAudioPath" placeholder="例如: story_audio/2024-01-03.mp3">
+                                </div>
+                                <div class="form-group">
+                                    <label for="newAudioDuration">音频时长(秒):</label>
+                                    <input type="number" id="newAudioDuration" placeholder="例如: 30">
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" onclick="closeModal('createStoryModal')">取消</button>
+                            <button class="btn btn-primary" onclick="createStory()">创建</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+        
+        // 创建故事
+        async function createStory() {
+            const storyId = document.getElementById('newStoryId').value;
+            const title = document.getElementById('newStoryTitle').value;
+            const content = document.getElementById('newStoryContent').value;
+            const audioPath = document.getElementById('newAudioPath').value;
+            const audioDuration = document.getElementById('newAudioDuration').value;
+            
+            if (!storyId || !title || !content) {
+                showError('故事ID、标题和内容不能为空');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/stories`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        story_id: storyId,
+                        title: title,
+                        content: content,
+                        audio_file_path: audioPath || null,
+                        audio_duration_seconds: audioDuration ? parseInt(audioDuration) : null,
+                        created_by: ADMIN_USER_ID
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showSuccess('故事创建成功');
+                    closeModal('createStoryModal');
+                    loadStories();
+                } else {
+                    showError('创建故事失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('创建故事失败:', error);
+                showError('创建故事失败: ' + error.message);
+            }
+        }
+        
+        // 编辑故事
+        function editStory(storyId) {
+            const story = storiesData.find(s => s.story_id === storyId);
+            if (!story) return;
+            
+            const modalHtml = `
+                <div id="editStoryModal" class="modal" style="display: block;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2>编辑故事: ${story.title}</h2>
+                            <span class="close" onclick="closeModal('editStoryModal')">&times;</span>
+                        </div>
+                        <div class="modal-body">
+                            <form id="editStoryForm">
+                                <div class="form-group">
+                                    <label for="editStoryId">故事ID:</label>
+                                    <input type="text" id="editStoryId" value="${story.story_id}" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label for="editStoryTitle">故事标题:</label>
+                                    <input type="text" id="editStoryTitle" value="${story.title}" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="editStoryContent">故事内容:</label>
+                                    <textarea id="editStoryContent" required rows="10">${story.content}</textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="editAudioPath">音频文件路径:</label>
+                                    <input type="text" id="editAudioPath" value="${story.audio_file_path || ''}">
+                                </div>
+                                <div class="form-group">
+                                    <label for="editAudioDuration">音频时长(秒):</label>
+                                    <input type="number" id="editAudioDuration" value="${story.audio_duration_seconds || ''}">
+                                </div>
+                                <div class="form-group">
+                                    <label>
+                                        <input type="checkbox" id="editStoryActive" ${story.is_active ? 'checked' : ''}>
+                                        激活状态
+                                    </label>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" onclick="closeModal('editStoryModal')">取消</button>
+                            <button class="btn btn-primary" onclick="updateStory('${storyId}')">保存</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+        
+        // 更新故事
+        async function updateStory(storyId) {
+            const title = document.getElementById('editStoryTitle').value;
+            const content = document.getElementById('editStoryContent').value;
+            const audioPath = document.getElementById('editAudioPath').value;
+            const audioDuration = document.getElementById('editAudioDuration').value;
+            const isActive = document.getElementById('editStoryActive').checked;
+            
+            if (!title || !content) {
+                showError('故事标题和内容不能为空');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/stories/${storyId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        title: title,
+                        content: content,
+                        audio_file_path: audioPath || null,
+                        audio_duration_seconds: audioDuration ? parseInt(audioDuration) : null,
+                        is_active: isActive,
+                        updated_by: ADMIN_USER_ID
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showSuccess('故事更新成功');
+                    closeModal('editStoryModal');
+                    loadStories();
+                } else {
+                    showError('更新故事失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('更新故事失败:', error);
+                showError('更新故事失败: ' + error.message);
+            }
+        }
+        
+        // 激活故事
+        async function activateStory(storyId) {
+            if (!confirm('确定要激活这个故事吗？')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/stories/${storyId}/activate`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showSuccess('故事激活成功');
+                    loadStories();
+                } else {
+                    showError('激活故事失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('激活故事失败:', error);
+                showError('激活故事失败: ' + error.message);
+            }
+        }
+        
+        // 停用故事
+        async function deactivateStory(storyId) {
+            if (!confirm('确定要停用这个故事吗？')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/stories/${storyId}/deactivate`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showSuccess('故事停用成功');
+                    loadStories();
+                } else {
+                    showError('停用故事失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('停用故事失败:', error);
+                showError('停用故事失败: ' + error.message);
+            }
+        }
+        
+        // 查看故事详情
+        function viewStoryDetails(storyId) {
+            const story = storiesData.find(s => s.story_id === storyId);
+            if (!story) return;
+            
+            const modalHtml = `
+                <div id="storyDetailsModal" class="modal" style="display: block;">
+                    <div class="modal-content" style="max-width: 800px;">
+                        <div class="modal-header">
+                            <h2>故事详情: ${story.title}</h2>
+                            <span class="close" onclick="closeModal('storyDetailsModal')">&times;</span>
+                        </div>
+                        <div class="modal-body">
+                            <div class="story-details">
+                                <div class="detail-row">
+                                    <strong>故事ID:</strong> ${story.story_id}
+                                </div>
+                                <div class="detail-row">
+                                    <strong>标题:</strong> ${story.title}
+                                </div>
+                                <div class="detail-row">
+                                    <strong>状态:</strong> 
+                                    <span class="status-badge ${story.is_active ? 'status-completed' : 'status-incomplete'}">
+                                        ${story.is_active ? '活跃' : '停用'}
+                                    </span>
+                                </div>
+                                <div class="detail-row">
+                                    <strong>音频文件:</strong> ${story.audio_file_path || '无'}
+                                </div>
+                                <div class="detail-row">
+                                    <strong>音频时长:</strong> ${story.audio_duration_seconds ? story.audio_duration_seconds + '秒' : '无'}
+                                </div>
+                                <div class="detail-row">
+                                    <strong>创建时间:</strong> ${new Date(story.created_at).toLocaleString()}
+                                </div>
+                                <div class="detail-row">
+                                    <strong>更新时间:</strong> ${new Date(story.updated_at).toLocaleString()}
+                                </div>
+                                <div class="detail-row">
+                                    <strong>版本:</strong> v${story.version}
+                                </div>
+                                <div class="detail-row">
+                                    <strong>故事内容:</strong>
+                                    <div class="story-content" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-top: 10px; background: #f9f9f9;">
+                                        ${story.content.replace(/\n/g, '<br>')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" onclick="closeModal('storyDetailsModal')">关闭</button>
+                            <button class="btn btn-primary" onclick="editStory('${storyId}')">编辑</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+        
+        // 关闭弹窗
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.remove();
+            }
+        }
+        
+        // 在切换标签页时加载故事数据
+        function switchTab(tabName) {
+            // 移除所有活动状态
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            // 激活选中的标签页
+            event.target.classList.add('active');
+            document.getElementById(tabName).classList.add('active');
+            
+            // 如果是故事管理标签页，加载故事数据
+            if (tabName === 'stories') {
+                loadStories();
+            }
+        }
     </script>
 </body>
 </html>

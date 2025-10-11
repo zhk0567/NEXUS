@@ -24,13 +24,31 @@ class DatabaseManager:
         # 性能优化：添加查询缓存
         self.query_cache = {}
         self.cache_ttl = 300  # 5分钟缓存
+        # 连接重试配置
+        self.max_retries = 3
+        self.retry_delay = 1
         self.connect()
         self.init_database()
     
     def connect(self):
         """连接到数据库"""
         try:
-            self.connection = pymysql.connect(**DATABASE_CONFIG)
+            # 添加连接参数以提高稳定性
+            config = DATABASE_CONFIG.copy()
+            config.update({
+                'autocommit': True,
+                'charset': 'utf8mb4',
+                'use_unicode': True,
+                'connect_timeout': 10,
+                'read_timeout': 30,
+                'write_timeout': 30,
+                'init_command': "SET SESSION sql_mode='STRICT_TRANS_TABLES'",
+                'sql_mode': 'STRICT_TRANS_TABLES',
+                'cursorclass': pymysql.cursors.DictCursor
+            })
+            self.connection = pymysql.connect(**config)
+            # 设置连接保持活跃
+            self.connection.ping(reconnect=True)
             logger.info("✅ 数据库连接成功")
         except Exception as e:
             logger.error(f"❌ 数据库连接失败: {e}")
@@ -40,12 +58,40 @@ class DatabaseManager:
         """重新连接数据库"""
         try:
             if self.connection:
-                self.connection.close()
+                try:
+                    self.connection.close()
+                except:
+                    pass  # 忽略关闭时的错误
             self.connect()
             logger.info("🔄 数据库重新连接成功")
         except Exception as e:
             logger.error(f"❌ 数据库重新连接失败: {e}")
             raise
+    
+    def _get_fresh_connection(self):
+        """获取新的数据库连接"""
+        config = DATABASE_CONFIG.copy()
+        config.update({
+            'autocommit': True,
+            'charset': 'utf8mb4',
+            'use_unicode': True,
+            'connect_timeout': 10,
+            'read_timeout': 30,
+            'write_timeout': 30,
+            'cursorclass': pymysql.cursors.DictCursor
+        })
+        return pymysql.connect(**config)
+    
+    def is_connection_healthy(self):
+        """检查数据库连接是否健康"""
+        try:
+            if not self.connection or not self.connection.open:
+                return False
+            # 执行简单查询测试连接
+            self.connection.ping(reconnect=False)
+            return True
+        except:
+            return False
     
     def init_database(self):
         """初始化数据库和表"""
@@ -124,30 +170,57 @@ class DatabaseManager:
         """验证密码"""
         return self.hash_password(password) == password_hash
     
-    def user_exists(self, user_id: str) -> bool:
-        """检查用户是否存在"""
-        max_retries = 3
-        for attempt in range(max_retries):
+    def execute_with_retry(self, operation, *args, **kwargs):
+        """带重试机制的数据库操作"""
+        for attempt in range(self.max_retries):
             try:
                 # 检查连接是否有效
                 if not self.connection or not self.connection.open:
-                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
+                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{self.max_retries})")
                     self.reconnect()
-                
-                with self.connection.cursor() as cursor:
-                    sql = "SELECT COUNT(*) FROM users WHERE user_id = %s"
-                    cursor.execute(sql, (user_id,))
-                    result = cursor.fetchone()
-                    return result[0] > 0
-                    
-            except Exception as e:
-                logger.error(f"❌ 检查用户存在失败 (尝试 {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    self.reconnect()
-                    time.sleep(1)
                 else:
-                    return False
-        return False
+                    # 测试连接是否真的可用
+                    try:
+                        self.connection.ping(reconnect=False)
+                    except:
+                        logger.warning(f"⚠️ 数据库连接测试失败，尝试重新连接 (尝试 {attempt + 1}/{self.max_retries})")
+                        self.reconnect()
+                
+                return operation(*args, **kwargs)
+                
+            except (pymysql.OperationalError, pymysql.InterfaceError, pymysql.ProgrammingError, 
+                    pymysql.Error, ConnectionError, OSError) as e:
+                logger.error(f"❌ 数据库操作失败 (尝试 {attempt + 1}/{self.max_retries}): {e}")
+                if attempt < self.max_retries - 1:
+                    try:
+                        self.reconnect()
+                    except:
+                        pass  # 重连失败，继续重试
+                    time.sleep(self.retry_delay * (attempt + 1))  # 递增延迟
+                else:
+                    raise
+            except Exception as e:
+                logger.error(f"❌ 数据库操作失败 (尝试 {attempt + 1}/{self.max_retries}): {e}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay * (attempt + 1))
+                else:
+                    raise
+    
+    def user_exists(self, user_id: str) -> bool:
+        """检查用户是否存在"""
+        def _check_user():
+            with self.connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                # 先尝试按user_id查找，如果没找到再按username查找
+                sql = "SELECT COUNT(*) as count FROM users WHERE user_id = %s OR username = %s"
+                cursor.execute(sql, (user_id, user_id))
+                result = cursor.fetchone()
+                return result['count'] > 0 if result else False
+        
+        try:
+            return self.execute_with_retry(_check_user)
+        except Exception as e:
+            logger.error(f"❌ 检查用户存在失败: {e}")
+            return False
     
     def create_user(self, user_id: str, username: str, password: str, email: str = None, is_active: bool = True) -> bool:
         """创建用户"""
@@ -184,16 +257,6 @@ class DatabaseManager:
                     logger.error(f"❌ 创建用户最终失败，已重试 {max_retries} 次")
                     return False
     
-    def get_user_by_id(self, user_id: str) -> Optional[Dict]:
-        """根据用户ID获取用户信息"""
-        try:
-            with self.connection.cursor(pymysql.cursors.DictCursor) as cursor:
-                sql = "SELECT * FROM users WHERE user_id = %s"
-                cursor.execute(sql, (user_id,))
-                return cursor.fetchone()
-        except Exception as e:
-            logger.error(f"❌ 获取用户信息失败: {e}")
-            return None
     
     def get_user_by_username(self, username: str) -> Optional[Dict]:
         """根据用户名获取用户信息"""
@@ -205,6 +268,105 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"❌ 获取用户信息失败: {e}")
             return None
+    
+    def get_all_users(self, limit: int = 1000) -> List[Dict]:
+        """获取所有用户"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            connection = None
+            try:
+                # 使用新的连接避免连接状态问题
+                connection = self._get_fresh_connection()
+                
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                    sql = "SELECT * FROM users ORDER BY created_at DESC LIMIT %s"
+                    cursor.execute(sql, (limit,))
+                    return cursor.fetchall()
+                    
+            except Exception as e:
+                logger.error(f"❌ 获取所有用户失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    return []
+            finally:
+                if connection:
+                    connection.close()
+        return []
+    
+    def get_all_reading_progress(self, limit: int = 100) -> List[Dict]:
+        """获取所有阅读进度"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            connection = None
+            try:
+                # 使用新的连接避免连接状态问题
+                connection = self._get_fresh_connection()
+                
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                    sql = """
+                    SELECT rp.*, u.username 
+                    FROM reading_progress rp 
+                    LEFT JOIN users u ON rp.user_id = u.user_id 
+                    ORDER BY rp.last_read_time DESC 
+                    LIMIT %s
+                    """
+                    cursor.execute(sql, (limit,))
+                    return cursor.fetchall()
+                    
+            except Exception as e:
+                logger.error(f"❌ 获取所有阅读进度失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    return []
+            finally:
+                if connection:
+                    connection.close()
+        return []
+    
+    def get_user_details(self, user_id: str) -> Optional[Dict]:
+        """获取用户详细信息"""
+        def _get_details():
+            with self.connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                # 获取用户基本信息
+                sql = "SELECT * FROM users WHERE user_id = %s"
+                cursor.execute(sql, (user_id,))
+                user = cursor.fetchone()
+                
+                if not user:
+                    return None
+                
+                # 获取用户阅读统计
+                sql = """
+                SELECT 
+                    COUNT(*) as total_stories,
+                    SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END) as completed_stories,
+                    AVG(reading_progress) as avg_progress,
+                    MAX(last_read_time) as last_activity
+                FROM reading_progress 
+                WHERE user_id = %s
+                """
+                cursor.execute(sql, (user_id,))
+                stats = cursor.fetchone()
+                
+                # 获取最近阅读记录
+                sql = """
+                SELECT story_title, reading_progress, is_completed, last_read_time
+                FROM reading_progress 
+                WHERE user_id = %s 
+                ORDER BY last_read_time DESC 
+                LIMIT 5
+                """
+                cursor.execute(sql, (user_id,))
+                recent_reading = cursor.fetchall()
+                
+                return {
+                    'user': user,
+                    'stats': stats,
+                    'recent_reading': recent_reading
+                }
+        return self.execute_with_retry(_get_details)
     
     def authenticate_user(self, username: str, password: str) -> Optional[Dict]:
         """用户认证"""
@@ -568,10 +730,68 @@ class DatabaseManager:
 
     # ==================== 故事控制相关功能 ====================
     
+    def complete_reading(self, user_id: str, story_id: str, story_title: str, 
+                        completion_mode: str, device_info: str = None, username: str = None) -> bool:
+        """标记故事为已完成，并记录完成方式"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if not self.connection or not self.connection.open:
+                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
+
+                with self.connection.cursor() as cursor:
+                    # 验证完成方式
+                    valid_modes = ['text', 'audio', 'mixed']
+                    if completion_mode not in valid_modes:
+                        logger.error(f"❌ 无效的完成方式: {completion_mode}")
+                        return False
+                    
+                    # 检查是否已存在记录
+                    check_sql = "SELECT id, is_completed FROM reading_progress WHERE user_id = %s AND story_id = %s"
+                    cursor.execute(check_sql, (user_id, story_id))
+                    existing = cursor.fetchone()
+                    
+                    if existing:
+                        # 更新现有记录
+                        update_sql = """
+                        UPDATE reading_progress 
+                        SET is_completed = TRUE, completion_time = NOW(), 
+                            completion_mode = %s, last_read_time = NOW(),
+                            device_info = %s, username = %s
+                        WHERE user_id = %s AND story_id = %s
+                        """
+                        cursor.execute(update_sql, (
+                            completion_mode, device_info, username, user_id, story_id
+                        ))
+                    else:
+                        # 创建新记录
+                        insert_sql = """
+                        INSERT INTO reading_progress 
+                        (user_id, username, story_id, story_title, current_position, total_length, 
+                         reading_progress, is_completed, completion_mode, start_time, completion_time, device_info)
+                        VALUES (%s, %s, %s, %s, 0, 0, 100.0, TRUE, %s, NOW(), NOW(), %s)
+                        """
+                        cursor.execute(insert_sql, (
+                            user_id, username, story_id, story_title, completion_mode, device_info
+                        ))
+                    
+                    self.connection.commit()
+                    logger.info(f"✅ 标记故事完成成功: {user_id} - {story_id} (方式: {completion_mode})")
+                    return True
+
+            except Exception as e:
+                logger.error(f"❌ 标记故事完成失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    self.reconnect()
+                else:
+                    return False
+        return False
 
     def update_reading_progress(self, user_id: str, story_id: str, story_title: str,
                               current_position: int, total_length: int, 
-                              device_info: str = None, username: str = None) -> bool:
+                              device_info: str = None, username: str = None, 
+                              completion_mode: str = None) -> bool:
         """更新阅读进度"""
         max_retries = 3
         for attempt in range(max_retries):
@@ -583,7 +803,8 @@ class DatabaseManager:
                 with self.connection.cursor() as cursor:
                     # 计算阅读进度百分比
                     reading_progress = (current_position / total_length * 100) if total_length > 0 else 0
-                    is_completed = reading_progress >= 100.0
+                    # 不自动设置完成状态，只有通过完成阅读API才能设置
+                    is_completed = False
                     
                     # 检查是否已存在记录
                     check_sql = "SELECT id, start_time FROM reading_progress WHERE user_id = %s AND story_id = %s"
@@ -596,26 +817,28 @@ class DatabaseManager:
                         UPDATE reading_progress 
                         SET current_position = %s, total_length = %s, reading_progress = %s,
                             is_completed = %s, last_read_time = NOW(),
-                            completion_time = CASE WHEN %s = 1 AND completion_time IS NULL THEN NOW() ELSE completion_time END,
+                            completion_time = CASE WHEN %s = 1 THEN NOW() ELSE completion_time END,
+                            completion_mode = CASE WHEN %s = 1 AND %s IS NOT NULL THEN %s ELSE completion_mode END,
                             device_info = %s, username = %s
                         WHERE user_id = %s AND story_id = %s
                         """
                         cursor.execute(update_sql, (
                             current_position, total_length, reading_progress, is_completed,
-                            is_completed, device_info, username, user_id, story_id
+                            is_completed, is_completed, completion_mode, completion_mode,
+                            device_info, username, user_id, story_id
                         ))
                     else:
                         # 创建新记录
                         insert_sql = """
                         INSERT INTO reading_progress 
                         (user_id, username, story_id, story_title, current_position, total_length, 
-                         reading_progress, is_completed, start_time, completion_time, device_info)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), 
+                         reading_progress, is_completed, completion_mode, start_time, completion_time, device_info)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), 
                                 CASE WHEN %s = 1 THEN NOW() ELSE NULL END, %s)
                         """
                         cursor.execute(insert_sql, (
                             user_id, username, story_id, story_title, current_position, total_length,
-                            reading_progress, is_completed, is_completed, device_info
+                            reading_progress, is_completed, completion_mode, is_completed, device_info
                         ))
                     
                     self.connection.commit()
@@ -635,12 +858,12 @@ class DatabaseManager:
         """获取阅读进度"""
         max_retries = 3
         for attempt in range(max_retries):
+            connection = None
             try:
-                if not self.connection or not self.connection.open:
-                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
-                    self.reconnect()
+                # 使用新的连接避免连接状态问题
+                connection = self._get_fresh_connection()
 
-                with self.connection.cursor() as cursor:
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                     if story_id:
                         # 获取特定故事的进度
                         sql = """
@@ -666,20 +889,20 @@ class DatabaseManager:
                     
                     results = cursor.fetchall()
                     
-                    # 转换为字典列表
+                    # 处理结果
                     progress_list = []
                     for row in results:
                         progress = {
-                            'story_id': row[0],
-                            'story_title': row[1],
-                            'current_position': row[2],
-                            'total_length': row[3],
-                            'reading_progress': float(row[4]) if row[4] else 0.0,
-                            'is_completed': bool(row[5]),
-                            'start_time': row[6].isoformat() if row[6] else None,
-                            'last_read_time': row[7].isoformat() if row[7] else None,
-                            'completion_time': row[8].isoformat() if row[8] else None,
-                            'reading_duration_seconds': row[9] or 0
+                            'story_id': row['story_id'],
+                            'story_title': row['story_title'],
+                            'current_position': row['current_position'],
+                            'total_length': row['total_length'],
+                            'reading_progress': float(row['reading_progress']) if row['reading_progress'] else 0.0,
+                            'is_completed': bool(row['is_completed']),
+                            'start_time': row['start_time'].isoformat() if row['start_time'] else None,
+                            'last_read_time': row['last_read_time'].isoformat() if row['last_read_time'] else None,
+                            'completion_time': row['completion_time'].isoformat() if row['completion_time'] else None,
+                            'reading_duration_seconds': row['reading_duration_seconds'] or 0
                         }
                         progress_list.append(progress)
                     
@@ -689,10 +912,12 @@ class DatabaseManager:
             except Exception as e:
                 logger.error(f"❌ 获取阅读进度失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    self.reconnect()
                     time.sleep(1)
                 else:
                     return []
+            finally:
+                if connection:
+                    connection.close()
         return []
 
     def log_story_interaction(self, user_id: str, story_id: str, interaction_type: str,
@@ -701,43 +926,53 @@ class DatabaseManager:
         """记录故事交互"""
         max_retries = 3
         for attempt in range(max_retries):
+            connection = None
             try:
-                if not self.connection or not self.connection.open:
-                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
-                    self.reconnect()
-
-                with self.connection.cursor() as cursor:
+                # 使用新的连接避免连接状态问题
+                connection = self._get_fresh_connection()
+                
+                # 获取用户名
+                username = None
+                try:
+                    user_info = self.get_user_by_id(user_id)
+                    username = user_info.get('username') if user_info else None
+                except:
+                    pass  # 如果获取用户名失败，继续使用None
+                
+                with connection.cursor() as cursor:
                     sql = """
                     INSERT INTO story_interactions 
-                    (user_id, story_id, interaction_type, interaction_data, device_info, app_version)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    (user_id, username, story_id, interaction_type, interaction_data, device_info, app_version)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """
                     interaction_json = json.dumps(interaction_data) if interaction_data else None
-                    cursor.execute(sql, (user_id, story_id, interaction_type, interaction_json, device_info, app_version))
-                    self.connection.commit()
+                    cursor.execute(sql, (user_id, username, story_id, interaction_type, interaction_json, device_info, app_version))
+                    connection.commit()
                     
-                    logger.info(f"记录故事交互成功: {user_id} - {story_id} - {interaction_type}")
+                    logger.info(f"记录故事交互成功: {user_id} ({username}) - {story_id} - {interaction_type}")
                     return True
 
             except Exception as e:
                 logger.error(f"❌ 记录故事交互失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    self.reconnect()
                     time.sleep(1)
                 else:
                     return False
+            finally:
+                if connection:
+                    connection.close()
         return False
 
     def get_reading_statistics(self, user_id: str, days: int = 30) -> Dict[str, Any]:
         """获取阅读统计"""
         max_retries = 3
         for attempt in range(max_retries):
+            connection = None
             try:
-                if not self.connection or not self.connection.open:
-                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
-                    self.reconnect()
+                # 使用新的连接避免连接状态问题
+                connection = self._get_fresh_connection()
 
-                with self.connection.cursor() as cursor:
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                     # 获取基本统计
                     stats_sql = """
                     SELECT 
@@ -777,11 +1012,11 @@ class DatabaseManager:
                     
                     # 构建统计结果
                     statistics = {
-                        'total_stories': stats_result[0] or 0,
-                        'completed_stories': stats_result[1] or 0,
-                        'total_reading_time_seconds': stats_result[2] or 0,
-                        'average_progress': float(stats_result[3]) if stats_result[3] else 0.0,
-                        'last_reading_time': stats_result[4].isoformat() if stats_result[4] else None,
+                        'total_stories': stats_result['total_stories'] or 0,
+                        'completed_stories': stats_result['completed_stories'] or 0,
+                        'total_reading_time_seconds': stats_result['total_reading_time'] or 0,
+                        'average_progress': float(stats_result['avg_progress']) if stats_result['avg_progress'] else 0.0,
+                        'last_reading_time': stats_result['last_reading_time'].isoformat() if stats_result['last_reading_time'] else None,
                         'recent_stories': [],
                         'daily_reading': []
                     }
@@ -789,18 +1024,18 @@ class DatabaseManager:
                     # 处理最近阅读的故事
                     for story in recent_stories:
                         statistics['recent_stories'].append({
-                            'story_id': story[0],
-                            'story_title': story[1],
-                            'reading_progress': float(story[2]) if story[2] else 0.0,
-                            'is_completed': bool(story[3]),
-                            'last_read_time': story[4].isoformat() if story[4] else None
+                            'story_id': story['story_id'],
+                            'story_title': story['story_title'],
+                            'reading_progress': float(story['reading_progress']) if story['reading_progress'] else 0.0,
+                            'is_completed': bool(story['is_completed']),
+                            'last_read_time': story['last_read_time'].isoformat() if story['last_read_time'] else None
                         })
                     
                     # 处理每日阅读统计
                     for daily in daily_stats:
                         statistics['daily_reading'].append({
-                            'date': daily[0].isoformat() if daily[0] else None,
-                            'duration_seconds': daily[1] or 0
+                            'date': daily['reading_date'].isoformat() if daily['reading_date'] else None,
+                            'duration_seconds': daily['daily_duration'] or 0
                         })
                     
                     logger.info(f"✅ 获取阅读统计成功: {user_id}")
@@ -809,40 +1044,49 @@ class DatabaseManager:
             except Exception as e:
                 logger.error(f"❌ 获取阅读统计失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    self.reconnect()
                     time.sleep(1)
                 else:
                     return {}
+            finally:
+                if connection:
+                    connection.close()
         return {}
 
     def get_all_users_reading_progress(self, limit=100, offset=0):
         """获取所有用户的阅读进度（管理员功能）"""
         max_retries = 3
         for attempt in range(max_retries):
+            connection = None
             try:
-                if not self.connection or not self.connection.open:
-                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
-                    self.reconnect()
+                # 使用新的连接避免连接状态问题
+                connection = self._get_fresh_connection()
 
-                with self.connection.cursor() as cursor:
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                     sql = """
                     SELECT rp.*, u.username 
                     FROM reading_progress rp
                     LEFT JOIN users u ON rp.user_id = u.user_id
+                    WHERE rp.id IN (
+                        SELECT MAX(id) 
+                        FROM reading_progress 
+                        GROUP BY user_id, story_id
+                    )
                     ORDER BY rp.last_read_time DESC
                     LIMIT %s OFFSET %s
                     """
                     cursor.execute(sql, (limit, offset))
-                    columns = [desc[0] for desc in cursor.description]
-                    results = []
-                    for row in cursor.fetchall():
-                        result = dict(zip(columns, row))
-                        results.append(result)
+                    results = cursor.fetchall()
                     
-                    # 获取总数
-                    count_sql = "SELECT COUNT(*) FROM reading_progress"
+                    # 获取总数（只统计唯一的用户-故事组合）
+                    count_sql = """
+                    SELECT COUNT(*) as count FROM (
+                        SELECT MAX(id) 
+                        FROM reading_progress 
+                        GROUP BY user_id, story_id
+                    ) as unique_records
+                    """
                     cursor.execute(count_sql)
-                    total_count = cursor.fetchone()[0]
+                    total_count = cursor.fetchone()['count']
                     
                     return {
                         'progress_list': results,
@@ -853,6 +1097,115 @@ class DatabaseManager:
 
             except Exception as e:
                 logger.error(f"❌ 获取所有用户阅读进度失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    return None
+            finally:
+                if connection:
+                    connection.close()
+        return None
+
+    def delete_reading_record(self, record_id: int) -> bool:
+        """删除阅读记录"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if not self.connection or not self.connection.open:
+                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
+
+                with self.connection.cursor() as cursor:
+                    # 删除指定的阅读记录
+                    delete_sql = "DELETE FROM reading_progress WHERE id = %s"
+                    cursor.execute(delete_sql, (record_id,))
+                    
+                    if cursor.rowcount > 0:
+                        self.connection.commit()
+                        logger.info(f"✅ 删除阅读记录成功: ID={record_id}")
+                        return True
+                    else:
+                        logger.warning(f"⚠️ 未找到要删除的记录: ID={record_id}")
+                        return False
+
+            except Exception as e:
+                logger.error(f"❌ 删除阅读记录失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    self.reconnect()
+                    time.sleep(1)
+                else:
+                    return False
+        return False
+
+    def reset_user_password(self, user_id: str, new_password: str) -> bool:
+        """重置用户密码"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if not self.connection or not self.connection.open:
+                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
+
+                with self.connection.cursor() as cursor:
+                    # 生成密码哈希
+                    import hashlib
+                    password_hash = hashlib.sha256(new_password.encode()).hexdigest()
+                    
+                    # 更新用户密码（同时保存原始密码和哈希值）
+                    update_sql = "UPDATE users SET password_hash = %s, original_password = %s WHERE user_id = %s"
+                    cursor.execute(update_sql, (password_hash, new_password, user_id))
+                    
+                    if cursor.rowcount > 0:
+                        self.connection.commit()
+                        logger.info(f"✅ 重置用户密码成功: {user_id}")
+                        return True
+                    else:
+                        logger.warning(f"⚠️ 未找到要重置密码的用户: {user_id}")
+                        return False
+
+            except Exception as e:
+                logger.error(f"❌ 重置用户密码失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    self.reconnect()
+                    time.sleep(1)
+                else:
+                    return False
+        return False
+
+    def get_user_password_info(self, user_id: str) -> dict:
+        """获取用户密码信息"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if not self.connection or not self.connection.open:
+                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
+
+                with self.connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                    # 获取用户密码信息
+                    sql = """
+                    SELECT user_id, username, password_hash, original_password, created_at, last_login_at
+                    FROM users 
+                    WHERE user_id = %s
+                    """
+                    cursor.execute(sql, (user_id,))
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        # 返回密码信息，包括原始密码（用于管理员查看）
+                        return {
+                            'user_id': result['user_id'],
+                            'username': result['username'],
+                            'has_password': bool(result['password_hash']),
+                            'password': result.get('original_password', '未设置'),
+                            'password_set_date': result['created_at'],
+                            'last_login': result['last_login_at']
+                        }
+                    else:
+                        return None
+
+            except Exception as e:
+                logger.error(f"❌ 获取用户密码信息失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
                     self.reconnect()
                     time.sleep(1)
@@ -919,8 +1272,16 @@ class DatabaseManager:
 
     def log_admin_operation(self, admin_user_id, target_user_id, story_id, operation_type):
         """记录管理员操作日志"""
+        connection = None
         try:
-            with self.connection.cursor() as cursor:
+            # 使用新的连接避免连接状态问题
+            connection = self._get_fresh_connection()
+            
+            with connection.cursor() as cursor:
+                # 处理NULL值
+                target_user_id = target_user_id or 'system'
+                story_id = story_id or 'N/A'
+                
                 sql = """
                 INSERT INTO admin_operations 
                 (admin_user_id, target_user_id, story_id, operation_type, operation_time, details)
@@ -928,40 +1289,40 @@ class DatabaseManager:
                 """
                 details = f"管理员 {admin_user_id} 对用户 {target_user_id} 的故事 {story_id} 执行了 {operation_type} 操作"
                 cursor.execute(sql, (admin_user_id, target_user_id, story_id, operation_type, details))
-                self.connection.commit()
+                connection.commit()
         except Exception as e:
             logger.error(f"❌ 记录管理员操作日志失败: {e}")
+        finally:
+            if connection:
+                connection.close()
 
     def get_user_by_id(self, user_id):
         """根据用户ID获取用户基本信息"""
         max_retries = 3
         for attempt in range(max_retries):
+            connection = None
             try:
-                if not self.connection or not self.connection.open:
-                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
-                    self.reconnect()
+                # 使用新的连接避免连接状态问题
+                connection = self._get_fresh_connection()
 
-                with self.connection.cursor() as cursor:
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                     sql = """
                     SELECT user_id, username, created_at, last_login_at, is_active
                     FROM users 
                     WHERE user_id = %s
                     """
                     cursor.execute(sql, (user_id,))
-                    columns = [desc[0] for desc in cursor.description]
-                    row = cursor.fetchone()
-                    
-                    if row:
-                        return dict(zip(columns, row))
-                    return None
+                    return cursor.fetchone()
 
             except Exception as e:
-                logger.error(f"❌ 获取用户信息失败: {e}")
+                logger.error(f"❌ 获取用户信息失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    self.reconnect()
                     time.sleep(1)
                 else:
                     return None
+            finally:
+                if connection:
+                    connection.close()
         return None
 
     def get_user_reading_progress_details(self, user_id):
@@ -1005,12 +1366,12 @@ class DatabaseManager:
         """获取用户阅读摘要（管理员查看）"""
         max_retries = 3
         for attempt in range(max_retries):
+            connection = None
             try:
-                if not self.connection or not self.connection.open:
-                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
-                    self.reconnect()
-
-                with self.connection.cursor() as cursor:
+                # 使用新的连接避免连接状态问题
+                connection = self._get_fresh_connection()
+                
+                with connection.cursor() as cursor:
                     # 获取用户基本信息
                     user_sql = "SELECT username, created_at, last_login_at FROM users WHERE user_id = %s"
                     cursor.execute(user_sql, (user_id,))
@@ -1046,11 +1407,207 @@ class DatabaseManager:
             except Exception as e:
                 logger.error(f"❌ 获取用户阅读摘要失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    return None
+            finally:
+                if connection:
+                    connection.close()
+        return None
+
+    # ==================== 故事管理方法 ====================
+    
+    def create_story(self, story_id: str, title: str, content: str, audio_file_path: str = None, 
+                    audio_duration_seconds: int = None, created_by: str = None) -> bool:
+        """创建新故事"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if not self.connection or not self.connection.open:
+                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
+
+                with self.connection.cursor() as cursor:
+                    sql = """
+                    INSERT INTO stories (story_id, title, content, audio_file_path, 
+                                       audio_duration_seconds, created_by, updated_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    cursor.execute(sql, (story_id, title, content, audio_file_path, 
+                                       audio_duration_seconds, created_by, created_by))
+                    logger.info(f"✅ 故事创建成功: {story_id}")
+                    return True
+
+            except Exception as e:
+                logger.error(f"❌ 创建故事失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    self.reconnect()
+                    time.sleep(1)
+                else:
+                    return False
+        return False
+
+    def update_story(self, story_id: str, title: str = None, content: str = None, 
+                    audio_file_path: str = None, audio_duration_seconds: int = None, 
+                    is_active: bool = None, updated_by: str = None) -> bool:
+        """更新故事"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if not self.connection or not self.connection.open:
+                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
+
+                with self.connection.cursor() as cursor:
+                    # 构建动态更新SQL
+                    update_fields = []
+                    params = []
+                    
+                    if title is not None:
+                        update_fields.append("title = %s")
+                        params.append(title)
+                    if content is not None:
+                        update_fields.append("content = %s")
+                        params.append(content)
+                    if audio_file_path is not None:
+                        update_fields.append("audio_file_path = %s")
+                        params.append(audio_file_path)
+                    if audio_duration_seconds is not None:
+                        update_fields.append("audio_duration_seconds = %s")
+                        params.append(audio_duration_seconds)
+                    if is_active is not None:
+                        update_fields.append("is_active = %s")
+                        params.append(is_active)
+                    if updated_by is not None:
+                        update_fields.append("updated_by = %s")
+                        params.append(updated_by)
+                    
+                    update_fields.append("version = version + 1")
+                    params.append(story_id)
+                    
+                    sql = f"UPDATE stories SET {', '.join(update_fields)} WHERE story_id = %s"
+                    cursor.execute(sql, params)
+                    
+                    if cursor.rowcount > 0:
+                        logger.info(f"✅ 故事更新成功: {story_id}")
+                        return True
+                    else:
+                        logger.warning(f"⚠️ 故事不存在: {story_id}")
+                        return False
+
+            except Exception as e:
+                logger.error(f"❌ 更新故事失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    self.reconnect()
+                    time.sleep(1)
+                else:
+                    return False
+        return False
+
+    def get_story(self, story_id: str) -> Dict[str, Any]:
+        """获取单个故事"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if not self.connection or not self.connection.open:
+                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
+
+                with self.connection.cursor() as cursor:
+                    sql = """
+                    SELECT story_id, title, content, audio_file_path, audio_duration_seconds,
+                           is_active, created_at, updated_at, created_by, updated_by, version
+                    FROM stories WHERE story_id = %s
+                    """
+                    cursor.execute(sql, (story_id,))
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        return {
+                            'story_id': result[0],
+                            'title': result[1],
+                            'content': result[2],
+                            'audio_file_path': result[3],
+                            'audio_duration_seconds': result[4],
+                            'is_active': bool(result[5]),
+                            'created_at': result[6],
+                            'updated_at': result[7],
+                            'created_by': result[8],
+                            'updated_by': result[9],
+                            'version': result[10]
+                        }
+                    return None
+
+            except Exception as e:
+                logger.error(f"❌ 获取故事失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
                     self.reconnect()
                     time.sleep(1)
                 else:
                     return None
         return None
+
+    def get_all_stories(self, include_inactive: bool = False) -> List[Dict[str, Any]]:
+        """获取所有故事"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            connection = None
+            try:
+                # 每次都创建新连接，避免连接状态问题
+                connection = self._get_fresh_connection()
+                
+                with connection.cursor() as cursor:
+                    if include_inactive:
+                        sql = """
+                        SELECT story_id, title, content, audio_file_path, audio_duration_seconds,
+                               is_active, created_at, updated_at, created_by, updated_by, version
+                        FROM stories ORDER BY updated_at DESC
+                        """
+                        cursor.execute(sql)
+                    else:
+                        sql = """
+                        SELECT story_id, title, content, audio_file_path, audio_duration_seconds,
+                               is_active, created_at, updated_at, created_by, updated_by, version
+                        FROM stories WHERE is_active = 1 ORDER BY updated_at DESC
+                        """
+                        cursor.execute(sql)
+                    
+                    results = cursor.fetchall()
+                    stories = []
+                    for result in results:
+                        stories.append({
+                            'story_id': result['story_id'],
+                            'title': result['title'],
+                            'content': result['content'],
+                            'audio_file_path': result['audio_file_path'],
+                            'audio_duration_seconds': result['audio_duration_seconds'],
+                            'is_active': bool(result['is_active']),
+                            'created_at': result['created_at'],
+                            'updated_at': result['updated_at'],
+                            'created_by': result['created_by'],
+                            'updated_by': result['updated_by'],
+                            'version': result['version']
+                        })
+                    return stories
+
+            except Exception as e:
+                logger.error(f"❌ 获取故事列表失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    return []
+            finally:
+                if connection:
+                    connection.close()
+        return []
+
+    def delete_story(self, story_id: str) -> bool:
+        """删除故事（软删除，设置为不活跃）"""
+        return self.update_story(story_id, is_active=False)
+
+    def activate_story(self, story_id: str) -> bool:
+        """激活故事"""
+        return self.update_story(story_id, is_active=True)
 
     def close(self):
         """关闭数据库连接"""
