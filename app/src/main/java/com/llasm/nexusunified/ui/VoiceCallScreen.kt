@@ -823,8 +823,8 @@ fun StatusText(
                 .size(8.dp)
                 .background(
                     when {
-                        isCalling -> Color(0xFFFF5722)
-                    isWaitingForResponse -> Color(0xFFFF9800)
+                        isCalling -> Color(0xFF4CAF50)
+                    isWaitingForResponse -> Color(0xFF00838F)
                         isConnected -> Color(0xFF4CAF50)
                         else -> Color(0xFF9E9E9E)
                     },
@@ -1223,8 +1223,8 @@ private fun HoldToCallButton(
                 .size(120.dp) // 更大的按钮
                 .background(
                     when {
-                        isWaitingForResponse -> if (isDarkMode) Color(0xFF4A148C) else Color(0xFF9C27B0) // 等待响应 - 深色模式用深紫色，浅色模式用紫色
-                        isCalling -> if (isDarkMode) Color(0xFFD84315) else Color(0xFFFF5722) // 通话中 - 深色模式用深橙色，浅色模式用橙色
+                        isWaitingForResponse -> if (isDarkMode) Color(0xFF00695C) else Color(0xFF00838F) // 等待响应 - 深色模式用深青绿色，浅色模式用青绿色
+                        isCalling -> if (isDarkMode) Color(0xFF2E7D32) else Color(0xFF4CAF50) // 通话中 - 深色模式用深绿色，浅色模式用绿色
                         else -> if (isDarkMode) Color(0xFF424242) else Color(0xFF757575) // 正常状态 - 深色模式用深灰色，浅色模式用中灰色
                     },
                     CircleShape
@@ -1232,8 +1232,8 @@ private fun HoldToCallButton(
                 .border(
                     width = 2.dp,
                     color = when {
-                        isWaitingForResponse -> if (isDarkMode) Color(0xFF6A1B9A) else Color(0xFFBA68C8) // 等待响应 - 深色模式用深紫色边框，浅色模式用浅紫色边框
-                        isCalling -> if (isDarkMode) Color(0xFFFF7043) else Color(0xFFFF9800) // 通话中 - 深色模式用深橙色边框，浅色模式用橙色边框
+                        isWaitingForResponse -> if (isDarkMode) Color(0xFF00838F) else Color(0xFF00ACC1) // 等待响应 - 深色模式用深青绿色边框，浅色模式用浅青绿色边框
+                        isCalling -> if (isDarkMode) Color(0xFF4CAF50) else Color(0xFF66BB6A) // 通话中 - 深色模式用绿色边框，浅色模式用浅绿色边框
                         else -> if (isDarkMode) Color(0xFF616161) else Color(0xFF9E9E9E) // 正常状态 - 深色模式用深灰色边框，浅色模式用浅灰色边框
                     },
                     CircleShape
@@ -1272,8 +1272,8 @@ private fun HoldToCallButton(
             if (isCalling) {
                 GlowEffect(
                     modifier = Modifier.size(80.dp),
-                    color = if (isDarkMode) Color(0xFFFF7043) else Color(0xFFFF9800),
-                    intensity = 0.8f
+                    color = if (isDarkMode) Color(0xFF4CAF50) else Color(0xFF66BB6A),
+                    intensity = 0.6f
                 )
             }
             
