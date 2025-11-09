@@ -1,0 +1,61 @@
+<!--settings.wxml-->
+<view class="container">
+  <view class="settings-list">
+    <!-- 用户信息 -->
+    <view wx:if="{{isLoggedIn}}" class="user-section">
+      <view class="user-info">
+        <text class="username">{{username || '小程序用户'}}</text>
+        <button class="logout-btn" bindtap="onClearData">清除数据</button>
+      </view>
+    </view>
+
+    <!-- 主题设置 -->
+    <view class="setting-item">
+      <text class="label">主题模式</text>
+      <radio-group bindchange="onThemeChange">
+        <label class="radio-label">
+          <radio value="light" checked="{{theme === 'light'}}" />
+          <text>浅色</text>
+        </label>
+        <label class="radio-label">
+          <radio value="dark" checked="{{theme === 'dark'}}" />
+          <text>深色</text>
+        </label>
+      </radio-group>
+    </view>
+
+    <!-- 字体大小 -->
+    <view class="setting-item">
+      <text class="label">字体大小</text>
+      <radio-group bindchange="onFontSizeChange">
+        <label class="radio-label">
+          <radio value="small" checked="{{fontSize === 'small'}}" />
+          <text>小</text>
+        </label>
+        <label class="radio-label">
+          <radio value="medium" checked="{{fontSize === 'medium'}}" />
+          <text>中</text>
+        </label>
+        <label class="radio-label">
+          <radio value="large" checked="{{fontSize === 'large'}}" />
+          <text>大</text>
+        </label>
+      </radio-group>
+    </view>
+
+    <!-- 服务器地址 -->
+    <view class="setting-item">
+      <text class="label">服务器地址</text>
+      <view class="server-input-group">
+        <input 
+          class="server-input" 
+          placeholder="请输入服务器地址"
+          value="{{serverUrl}}"
+          bindinput="onServerUrlInput"
+        />
+        <button class="save-btn" bindtap="saveServerUrl">保存</button>
+      </view>
+    </view>
+  </view>
+</view>
+

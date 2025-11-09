@@ -1,0 +1,43 @@
+# NEXUS Unified Backend Dependencies
+# =====================================
+
+# Web Framework
+flask==2.3.3
+flask-cors==4.0.0
+
+# HTTP Requests
+requests==2.31.0
+
+# Text-to-Speech
+edge-tts==7.2.3
+
+# System Monitoring
+psutil==5.9.6
+
+# Async Support (for edge-tts)
+aiohttp==3.9.1
+
+# Audio Processing (for Dolphin ASR)
+numpy==1.24.3
+scipy==1.11.4
+librosa==0.10.1
+soundfile==0.12.1
+
+# Machine Learning (for Dolphin ASR)
+torch==2.1.2
+torchaudio==2.1.2
+transformers==4.36.2
+
+# Audio Format Support
+wave
+audioop
+
+# Database
+pymysql==1.1.0
+cryptography==41.0.7
+
+# Additional Utilities
+python-dotenv==1.0.0
+
+# Tunnel Dependencies
+pyngrok==7.0.0

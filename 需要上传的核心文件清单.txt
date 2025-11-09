@@ -1,0 +1,46 @@
+需要上传到服务器的核心文件清单
+=====================================
+
+在服务器上创建文件夹（例如：C:\nexus_backend\），只上传以下文件：
+
+必需文件（7个）：
+-----------------
+1. nexus_backend.py          # 后端主程序
+2. database_config.py        # 数据库配置文件
+3. database_manager.py       # 数据库管理器
+4. requirements.txt          # Python依赖列表
+5. admin_panel.html          # 管理员面板
+6. start_system.py           # 系统启动脚本
+7. start_admin_panel.py      # 管理员面板启动脚本
+
+不需要上传的内容：
+-----------------
+- app/ 目录（Android应用，不需要）
+- story_control_app/ 目录（Android应用，不需要）
+- miniprogram/ 目录（微信小程序，不需要）
+- build/ 目录（构建产物，不需要）
+- __pycache__/ 目录（Python缓存，不需要）
+- gradle/ 目录（Android构建工具，不需要）
+- gradlew、gradlew.bat（Android构建脚本，不需要）
+- build.gradle、settings.gradle（Android构建配置，不需要）
+- local.properties（Android配置，不需要）
+- README.md（文档，不需要）
+- 其他所有文档和脚本
+
+上传方式：
+---------
+1. 使用远程桌面直接复制文件
+2. 使用FTP/SFTP工具上传
+3. 使用Git（如果服务器已安装Git）
+
+上传后目录结构示例：
+-------------------
+C:\nexus_backend\
+├── nexus_backend.py
+├── database_config.py
+├── database_manager.py
+├── requirements.txt
+├── admin_panel.html
+├── start_system.py
+└── start_admin_panel.py
+
