@@ -369,6 +369,21 @@ CORS(app, origins=['*'], methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 DEEPSEEK_API_KEY = "sk-66a8c43ecb14406ea020b5a9dd47090d"  # 请替换为您的API密钥
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
+# 火山引擎（豆包）API配置
+VOLCANO_ASR_URL = "https://openspeech.bytedance.com/api/v1/asr"
+VOLCANO_TTS_URL = "https://openspeech.bytedance.com/api/v1/tts"
+VOLCANO_ACCESS_KEY = "2AmQpw1aTtuIaRdMcrPX7K4PChZWus82"
+VOLCANO_APP_ID = "9065017641"
+VOLCANO_RESOURCE_ID = "volc.speech.dialog"
+VOLCANO_APP_KEY = "1-QSPcc75MckNFBAJqQK63KJTNhbDu0d"
+VOLCANO_REALTIME_WS_URL = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue"
+
+# 豆包语音对话配置
+DOUBAO_BOT_NAME = "豆包"
+DOUBAO_SYSTEM_ROLE = "你是一个智能的AI助手，名字叫豆包。你使用活泼灵动的女声，性格开朗，热爱生活。你的说话风格简洁明了，语速适中，语调自然。你可以帮助用户解答问题、聊天、提供建议等。请用友好、专业的语气与用户交流。"
+DOUBAO_SPEAKING_STYLE = "你的说话风格简洁明了，语速适中，语调自然，能够进行智能对话。"
+DOUBAO_TTS_SPEAKER = "zh_female_vv_jupiter_bigtts"  # vv音色，活泼灵动的女声
+
 # Dolphin ASR配置
 DOLPHIN_MODEL_PATH = "models/dolphin"
 DOLPHIN_MODEL = None
@@ -686,7 +701,7 @@ def run_async_tts(text: str, voice: str) -> bytes:
 
 # emoji过滤函数已移除，改为通过系统提示词直接限制
 
-def chat_with_deepseek(message: str) -> str:
+def chat_with_deepseek(message: str, conversation_history: list = None) -> str:
     """与DeepSeek API聊天"""
     try:
         logger.info(f"🤖 开始AI聊天: {message}")
@@ -696,12 +711,11 @@ def chat_with_deepseek(message: str) -> str:
             "Content-Type": "application/json"
         }
         
-        data = {
-            "model": "deepseek-chat",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": """你是一个贴心的AI助手，请用温暖、耐心、易懂的方式回答用户的问题。
+        # 构建消息列表
+        messages = [
+            {
+                "role": "system",
+                "content": """你是一个贴心的AI助手，请用温暖、耐心、易懂的方式回答用户的问题。
 重要：你必须用完整的中文句子回答，绝对不要只返回数字、代码或时间戳。
 
 回答要求：
@@ -726,13 +740,26 @@ def chat_with_deepseek(message: str) -> str:
 标点符号前后不要添加空格。
 
 请确保你的回答是完整的中文句子，包含具体信息，格式简洁清晰，没有多余的空格和符号，特别适合用户理解和接受。"""
-                },
-                {
-                    "role": "user",
-                    "content": message
-                }
-            ],
-            "max_tokens": 500,
+            }
+        ]
+        
+        # 添加对话历史（如果提供）
+        if conversation_history:
+            # 只保留最近10条对话
+            for hist_msg in conversation_history[-10:]:
+                if isinstance(hist_msg, dict) and 'role' in hist_msg and 'content' in hist_msg:
+                    messages.append(hist_msg)
+        
+        # 添加当前消息
+        messages.append({
+            "role": "user",
+            "content": message
+        })
+        
+        data = {
+            "model": "deepseek-chat",
+            "messages": messages,
+            "max_tokens": 1000,
             "temperature": 0.7
         }
         
@@ -788,13 +815,13 @@ def transcribe_audio():
         if 'audio' not in request.files:
             logger.error("❌ 请求中没有音频文件")
             error_type = "no_audio_file"
-            return jsonify({'error': 'No audio file provided'}), 400
+            return jsonify({'success': False, 'error': 'No audio file provided'}), 400
         
         audio_file = request.files['audio']
         if audio_file.filename == '':
             logger.error("❌ 音频文件名为空")
             error_type = "empty_filename"
-            return jsonify({'error': 'No audio file selected'}), 400
+            return jsonify({'success': False, 'error': 'No audio file selected'}), 400
         
         logger.info(f"🎤 收到音频文件: {audio_file.filename}")
         asr_processing_status['progress'] = 30
@@ -820,8 +847,10 @@ def transcribe_audio():
             
             return jsonify({
                 'success': True,
-                'transcription': transcription,
+                'text': transcription,  # Android代码期望的字段名
+                'transcription': transcription,  # 保持向后兼容
                 'processing_time': time.time() - start_time,
+                'duration': time.time() - start_time,  # Android代码期望的字段名
                 'request_id': request_id
             })
             
@@ -891,7 +920,7 @@ def text_to_speech():
         
         if not data or 'text' not in data:
             logger.error("❌ 缺少text参数")
-            return jsonify({'error': 'No text provided'}), 400
+            return jsonify({'success': False, 'error': 'No text provided'}), 400
         
         text = data['text']
         voice = data.get('voice', 'zh-CN-XiaoxiaoNeural')
@@ -929,6 +958,116 @@ def health_check():
     except Exception as e:
         logger.error(f"❌ 健康检查失败: {e}")
         return jsonify({"overall": "error", "error": str(e)}), 500
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """获取客户端配置（不包含敏感信息）"""
+    try:
+        import socket
+        
+        # 获取本机IP地址
+        def get_local_ip():
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                ip = s.getsockname()[0]
+                s.close()
+                return ip
+            except:
+                return "127.0.0.1"
+        
+        local_ip = get_local_ip()
+        server_port = 5000
+        
+        # 返回非敏感的配置信息
+        config = {
+            'success': True,
+            'server': {
+                'base_url': f'http://{local_ip}:{server_port}',
+                'websocket_url': f'ws://{local_ip}:{server_port}',
+                'api_base': f'http://{local_ip}:{server_port}/api'
+            },
+            'endpoints': {
+                'health': 'api/health',
+                'chat': 'api/chat',
+                'chat_streaming': 'api/chat_streaming',
+                'transcribe': 'api/transcribe',
+                'tts': 'api/tts',
+                'voice_chat': 'api/voice_chat',
+                'voice_chat_streaming': 'api/voice_chat_streaming',
+                'auth_login': 'api/auth/login',
+                'auth_logout': 'api/auth/logout',
+                'auth_register': 'api/auth/register',
+                'interactions_log': 'api/interactions/log',
+                'interactions_history': 'api/interactions/history',
+                'stats_interactions': 'api/stats/interactions',
+                'stats_active_users': 'api/stats/active_users',
+                'admin_cleanup': 'api/admin/cleanup',
+                'config': 'api/config'
+            },
+            'doubao': {
+                'bot_name': DOUBAO_BOT_NAME,
+                'tts_speaker': DOUBAO_TTS_SPEAKER
+            }
+        }
+        
+        return jsonify(config)
+    except Exception as e:
+        logger.error(f"❌ 获取配置失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/realtime/ws_config', methods=['GET'])
+def get_realtime_ws_config():
+    """获取实时语音WebSocket连接配置和认证信息"""
+    try:
+        import hashlib
+        import hmac
+        import time
+        import base64
+        
+        # 生成连接ID
+        connect_id = request.args.get('session_id', f"conn_{int(time.time())}")
+        
+        # 生成时间戳
+        timestamp = str(int(time.time()))
+        
+        # 生成签名（使用火山引擎的签名算法）
+        # 注意：这里简化处理，实际应该使用火山引擎的完整签名算法
+        sign_string = f"{VOLCANO_APP_ID}{timestamp}{connect_id}"
+        signature = hmac.new(
+            VOLCANO_APP_KEY.encode('utf-8'),
+            sign_string.encode('utf-8'),
+            hashlib.sha256
+        ).digest()
+        signature_base64 = base64.b64encode(signature).decode('utf-8')
+        
+        # 返回WebSocket连接所需的配置和认证信息
+        config = {
+            'success': True,
+            'websocket': {
+                'base_url': VOLCANO_REALTIME_WS_URL,
+                'resource_id': VOLCANO_RESOURCE_ID,
+                'headers': {
+                    'X-Api-App-ID': VOLCANO_APP_ID,
+                    'X-Api-Access-Key': VOLCANO_ACCESS_KEY,
+                    'X-Api-Resource-Id': VOLCANO_RESOURCE_ID,
+                    'X-Api-App-Key': VOLCANO_APP_KEY,
+                    'X-Api-Connect-Id': connect_id,
+                    'X-Api-Timestamp': timestamp,
+                    'X-Api-Signature': signature_base64
+                },
+                'bot_name': DOUBAO_BOT_NAME,
+                'system_role': DOUBAO_SYSTEM_ROLE,
+                'speaking_style': DOUBAO_SPEAKING_STYLE,
+                'tts_speaker': DOUBAO_TTS_SPEAKER
+            }
+        }
+        return jsonify(config)
+    except Exception as e:
+        logger.error(f"❌ 获取WebSocket配置失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/metrics', methods=['GET'])
 def get_metrics():
@@ -1406,8 +1545,8 @@ def chat():
             # 提供了session_id，继续该历史对话
             logger.info(f"ℹ️ [继续历史对话] 使用session: {session_id}")
         
-        # 调用DeepSeek API
-        ai_response = chat_with_deepseek(message)
+        # 调用DeepSeek API（传递对话历史）
+        ai_response = chat_with_deepseek(message, conversation_history)
         
         # 记录交互到数据库
         try:
@@ -1427,13 +1566,15 @@ def chat():
             logger.warning(f"⚠️ 记录交互到数据库失败: {db_error}")
         
         return jsonify({
-            'response': ai_response,
+            'success': True,
+            'message': ai_response,
+            'response': ai_response,  # 保持向后兼容
             'session_id': session_id  # 返回实际使用的session_id（可能已更新）
         })
         
     except Exception as e:
         logger.error(f"❌ 聊天API错误: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e), 'message': 'AI服务暂时不可用，请稍后重试。'}), 500
 
 
 @app.route('/test_tts', methods=['GET'])

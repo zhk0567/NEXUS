@@ -86,6 +86,7 @@ NEXUS Unified 是一个企业级的智能语音交互平台，集成了先进的
 - 📖 **故事控制系统**：完整的阅读管理系统，支持文字和音频双模式阅读
 - 🎵 **音频播放优化**：QQ音乐风格播放界面，简化操作，提升用户体验
 - 👥 **管理员面板**：完整的后台管理系统，支持用户管理和进度监控
+- 🔒 **安全架构**：所有API密钥和敏感信息仅在后端，Android代码不包含任何敏感信息
 
 ---
 
@@ -617,15 +618,34 @@ NEXUS - Final/
 项目已进行以下清理优化：
 - ✅ 移除Python缓存文件（`__pycache__/`）
 - ✅ 移除测试文件（`test_*.py`）
-- ✅ 移除过时文档（`VOICE_CALL_UI_UPGRADE.md`）
 - ✅ 清理构建产物（`build/`、`app/build/`、`story_control_app/build/`目录）
-- ✅ 移除日志文件（`nexus_server.log`）
+- ✅ 移除日志文件（`*.log`）
 - ✅ 清理Gradle缓存（`.gradle/`目录）
 - ✅ 移除临时文件和编译产物
 - ✅ 清理冗余文档文件，只保留README.md
 - ✅ 保持核心功能文件完整
 - ✅ 优化项目结构，提高可维护性
 - ✅ 清理所有缓存和临时文件
+
+### 🔒 安全架构说明
+
+项目已完成代码安全重构，所有敏感信息已从Android代码中移除：
+
+#### 安全改进
+- ✅ **API密钥管理**：所有API密钥（DeepSeek、火山引擎等）仅在后端配置
+- ✅ **服务器地址**：Android应用从后端动态获取服务器地址，不硬编码
+- ✅ **WebSocket认证**：WebSocket连接认证由后端处理，Android端无需密钥
+- ✅ **配置API**：提供 `/api/config` 和 `/api/realtime/ws_config` 端点获取配置
+
+#### 配置获取流程
+1. **应用启动**：Android应用启动时调用 `ServerConfig.fetchConfigFromServer()`
+2. **配置缓存**：成功获取后保存到SharedPreferences，下次启动优先使用缓存
+3. **后备方案**：如果无法连接后端，使用默认配置（172.31.0.2:5000）确保可用性
+
+#### API调用流程
+- **Android → 后端API**：所有第三方API调用都通过后端代理
+- **后端 → 第三方API**：后端使用配置的密钥调用DeepSeek、火山引擎等
+- **后端 → Android**：返回处理后的结果，不暴露敏感信息
 
 ---
 
@@ -785,11 +805,11 @@ Content-Type: application/json
 
 #### **健康检查接口**
 ```http
-GET /health
+GET /api/health
 
 响应:
 {
-  "status": "healthy",
+  "overall": "healthy",
   "services": {
     "asr": "healthy",
     "tts": "healthy", 
@@ -801,6 +821,56 @@ GET /health
     "disk_usage": 23.1
   },
   "timestamp": "2024-01-01T12:00:00Z"
+}
+```
+
+#### **配置接口**
+
+**获取客户端配置**
+```http
+GET /api/config
+
+响应:
+{
+  "success": true,
+  "server": {
+    "base_url": "http://172.31.0.2:5000",
+    "websocket_url": "ws://172.31.0.2:5000",
+    "api_base": "http://172.31.0.2:5000/api"
+  },
+  "endpoints": {
+    "health": "api/health",
+    "chat": "api/chat",
+    "transcribe": "api/transcribe",
+    "tts": "api/tts"
+  },
+  "doubao": {
+    "bot_name": "豆包",
+    "tts_speaker": "zh_female_vv_jupiter_bigtts"
+  }
+}
+```
+
+**获取WebSocket配置**
+```http
+GET /api/realtime/ws_config?session_id=xxx
+
+响应:
+{
+  "success": true,
+  "websocket": {
+    "base_url": "wss://openspeech.bytedance.com/api/v3/realtime/dialogue",
+    "resource_id": "volc.speech.dialog",
+    "headers": {
+      "X-Api-App-ID": "...",
+      "X-Api-Access-Key": "...",
+      "X-Api-Resource-Id": "...",
+      "X-Api-App-Key": "...",
+      "X-Api-Connect-Id": "...",
+      "X-Api-Timestamp": "...",
+      "X-Api-Signature": "..."
+    }
+  }
 }
 ```
 
@@ -1428,6 +1498,17 @@ python nexus_backend.py
 ---
 
 ## 📋 更新日志
+
+### 🚀 v3.2.0 (2025-01-XX)
+**代码安全重构**
+- 🔒 完成代码安全重构，所有API密钥和敏感信息移至后端
+- 🔒 Android代码移除所有硬编码的服务器地址和API密钥
+- 🔒 实现动态配置获取机制，从后端API获取服务器配置
+- 🔒 新增 `/api/config` 和 `/api/realtime/ws_config` 配置端点
+- 🔒 WebSocket认证由后端处理，Android端无需密钥
+- 🧹 清理项目目录，移除所有构建产物和缓存文件
+- 🧹 清理冗余文档，只保留README.md
+- 📚 更新README文档，添加安全架构说明
 
 ### 🚀 v3.1.8 (2025-10-11)
 **数据库连接优化和UI改进**

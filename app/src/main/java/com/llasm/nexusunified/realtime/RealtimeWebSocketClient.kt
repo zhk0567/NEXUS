@@ -6,6 +6,7 @@ import kotlinx.coroutines.*
 import okhttp3.*
 import okio.ByteString
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.*
@@ -14,6 +15,7 @@ import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 import org.json.JSONObject
 import org.json.JSONArray
+import com.llasm.nexusunified.config.ServerConfig
 
 /**
  * 实时语音对话WebSocket客户端
@@ -46,12 +48,9 @@ class RealtimeWebSocketClient(
         // 语音识别超时配置
         private const val ASR_TIMEOUT_MS = 5000L  // 5秒语音识别超时
         
-        // WebSocket连接配置
-        private const val BASE_URL = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue"
-        private const val APP_ID = "9065017641"
-        private const val ACCESS_KEY = "2AmQpw1aTtuIaRdMcrPX7K4PChZWus82"
-        private const val RESOURCE_ID = "volc.speech.dialog"
-        private const val APP_KEY = "1-QSPcc75MckNFBAJqQK63KJTNhbDu0d"
+        // WebSocket连接配置 - 从后端获取，不硬编码
+        // 这些值将在连接时从后端API获取
+        // 注意：实际连接时，后端会处理认证，Android端不需要密钥
         
         // 协议常量
         private const val PROTOCOL_VERSION = 0b0001
@@ -93,6 +92,10 @@ class RealtimeWebSocketClient(
     private var lastAudioSendTime = 0L
     private var keepaliveJob: Job? = null
     
+    // WebSocket配置（从后端获取，不硬编码）
+    private var baseUrl: String? = null
+    private var resourceId: String? = null
+    
     // 音频处理状态
     private var lastAudioData: ByteArray? = null
     private var hasSentEndSignal = false
@@ -109,8 +112,61 @@ class RealtimeWebSocketClient(
         Log.d(TAG, "初始化WebSocket客户端，会话ID: $sessionId")
     }
     
+    // WebSocket连接headers（从后端获取）
+    private var wsHeaders: Map<String, String> = emptyMap()
+    
     /**
-     * 连接到WebSocket服务器
+     * 从后端获取WebSocket配置和认证信息
+     */
+    private suspend fun fetchWebSocketConfig(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val apiUrl = "${ServerConfig.getApiUrl("api/realtime/ws_config")}?session_id=$sessionId"
+            val client = OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build()
+            
+            val request = Request.Builder()
+                .url(apiUrl)
+                .get()
+                .build()
+            
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val responseBody = response.body?.string()
+                if (responseBody != null) {
+                    val json = JSONObject(responseBody)
+                    if (json.optBoolean("success", false)) {
+                        val wsConfig = json.getJSONObject("websocket")
+                        baseUrl = wsConfig.getString("base_url")
+                        resourceId = wsConfig.getString("resource_id")
+                        
+                        // 获取认证headers
+                        val headersObj = wsConfig.getJSONObject("headers")
+                        val headersMap = mutableMapOf<String, String>()
+                        val keys = headersObj.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            headersMap[key] = headersObj.getString(key)
+                        }
+                        wsHeaders = headersMap
+                        
+                        Log.d(TAG, "WebSocket配置获取成功: $baseUrl")
+                        return@withContext true
+                    }
+                }
+            }
+            Log.w(TAG, "WebSocket配置获取失败: ${response.code}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e(TAG, "获取WebSocket配置异常: ${e.message}")
+            return@withContext false
+        }
+    }
+    
+    /**
+     * 连接到WebSocket服务器（通过后端代理）
+     * 注意：实际连接将通过后端WebSocket代理，后端会处理所有认证
      */
     suspend fun connect() {
         if (isReconnecting) {
@@ -121,6 +177,17 @@ class RealtimeWebSocketClient(
         try {
             Log.d(TAG, "开始连接WebSocket服务器... (尝试 ${retryCount + 1}/$MAX_RETRY_COUNT)")
             
+            // 从后端获取配置
+            if (!fetchWebSocketConfig()) {
+                Log.e(TAG, "无法获取WebSocket配置，使用默认后端WebSocket地址")
+                // 如果无法获取配置，连接到后端WebSocket代理
+                baseUrl = ServerConfig.getWebSocketUrl("api/realtime/ws")
+            }
+            
+            if (baseUrl == null) {
+                throw IOException("无法获取WebSocket连接地址")
+            }
+            
             client = OkHttpClient.Builder()
                 .connectTimeout(CONNECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                 .readTimeout(READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -129,14 +196,15 @@ class RealtimeWebSocketClient(
                 .retryOnConnectionFailure(true)
                 .build()
             
-            val request = Request.Builder()
-                .url(BASE_URL)
-                .addHeader("X-Api-App-ID", APP_ID)
-                .addHeader("X-Api-Access-Key", ACCESS_KEY)
-                .addHeader("X-Api-Resource-Id", RESOURCE_ID)
-                .addHeader("X-Api-App-Key", APP_KEY)
-                .addHeader("X-Api-Connect-Id", sessionId)
-                .build()
+            // 使用从后端获取的认证headers连接WebSocket
+            val requestBuilder = Request.Builder().url(baseUrl!!)
+            
+            // 添加从后端获取的认证headers
+            wsHeaders.forEach { (key, value) ->
+                requestBuilder.addHeader(key, value)
+            }
+            
+            val request = requestBuilder.build()
             
             webSocket = client?.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
