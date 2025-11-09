@@ -18,10 +18,14 @@ object ServerConfig {
     private const val KEY_WEBSOCKET_URL = "websocket_url"
     private const val KEY_API_BASE = "api_base"
     
-    // 默认配置（仅在无法连接后端时使用）
-    private const val DEFAULT_BASE_URL = "http://172.31.0.2:5000"
-    private const val DEFAULT_WEBSOCKET_URL = "ws://172.31.0.2:5000"
-    private const val DEFAULT_API_BASE = "http://172.31.0.2:5000/api"
+    // 默认配置（首次连接时使用，公网IP确保外网用户可访问）
+    // 注意：这个地址用于首次获取配置，获取成功后会被后端返回的实际地址替换
+    private const val DEFAULT_BASE_URL = "http://115.190.227.112:5000"
+    private const val DEFAULT_WEBSOCKET_URL = "ws://115.190.227.112:5000"
+    private const val DEFAULT_API_BASE = "http://115.190.227.112:5000/api"
+    
+    // 私网IP（作为后备，用于内网环境）
+    private const val FALLBACK_BASE_URL = "http://172.31.0.2:5000"
     
     // 缓存的配置
     private var cachedBaseUrl: String? = null
@@ -55,18 +59,21 @@ object ServerConfig {
     /**
      * 从后端获取配置
      */
-    suspend fun fetchConfigFromServer(baseUrl: String = DEFAULT_BASE_URL): Boolean {
+    suspend fun fetchConfigFromServer(baseUrl: String? = null): Boolean {
         return withContext(Dispatchers.IO) {
+            // 确定要使用的baseUrl：优先使用传入的，其次使用缓存的，最后使用默认的
+            val targetUrl = baseUrl ?: cachedBaseUrl ?: DEFAULT_BASE_URL
+            
             try {
                 val client = OkHttpClient.Builder()
                     .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                     .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                     .build()
                 
-                val url = if (baseUrl.endsWith("/")) {
-                    "${baseUrl}api/config"
+                val url = if (targetUrl.endsWith("/")) {
+                    "${targetUrl}api/config"
                 } else {
-                    "$baseUrl/api/config"
+                    "$targetUrl/api/config"
                 }
                 
                 val request = Request.Builder()
@@ -86,9 +93,6 @@ object ServerConfig {
                             cachedWebSocketUrl = server.getString("websocket_url")
                             cachedApiBase = server.getString("api_base")
                             
-                            // 保存到SharedPreferences
-                            saveConfigToPrefs()
-                            
                             Log.d(TAG, "配置获取成功: $cachedBaseUrl")
                             return@withContext true
                         }
@@ -100,6 +104,54 @@ object ServerConfig {
                 Log.e(TAG, "获取配置异常: ${e.message}")
                 return@withContext false
             }
+        }
+    }
+    
+    /**
+     * 初始化配置（应用启动时调用）
+     * 1. 先尝试从缓存加载
+     * 2. 如果有缓存，尝试验证并更新配置
+     * 3. 如果没有缓存，尝试从后端获取（使用默认地址）
+     */
+    suspend fun initialize(context: Context): Boolean {
+        return withContext(Dispatchers.IO) {
+            // 1. 先加载缓存配置
+            loadConfigFromPrefs(context)
+            
+            // 2. 如果有缓存配置，先尝试验证并更新
+            if (cachedBaseUrl != null && cachedBaseUrl != DEFAULT_BASE_URL) {
+                Log.d(TAG, "使用缓存配置: $cachedBaseUrl")
+                // 尝试从缓存的地址获取最新配置（静默更新）
+                fetchConfigFromServer(cachedBaseUrl)
+                // 保存更新后的配置
+                if (cachedBaseUrl != null) {
+                    saveConfigToPrefs(context)
+                }
+                return@withContext true
+            }
+            
+            // 3. 如果没有缓存，尝试从默认地址（公网IP）获取配置
+            Log.d(TAG, "无缓存配置，尝试从默认地址获取: $DEFAULT_BASE_URL")
+            var success = fetchConfigFromServer(DEFAULT_BASE_URL)
+            if (success && cachedBaseUrl != null) {
+                saveConfigToPrefs(context)
+                return@withContext true
+            }
+            
+            // 4. 如果公网IP失败，尝试私网IP（内网环境）
+            Log.d(TAG, "公网IP连接失败，尝试私网IP: $FALLBACK_BASE_URL")
+            success = fetchConfigFromServer(FALLBACK_BASE_URL)
+            if (success && cachedBaseUrl != null) {
+                saveConfigToPrefs(context)
+                return@withContext true
+            }
+            
+            // 5. 如果都失败，使用默认配置（公网IP）
+            Log.w(TAG, "无法从后端获取配置，使用默认配置: $DEFAULT_BASE_URL")
+            cachedBaseUrl = DEFAULT_BASE_URL
+            cachedWebSocketUrl = DEFAULT_WEBSOCKET_URL
+            cachedApiBase = DEFAULT_API_BASE
+            return@withContext false
         }
     }
     

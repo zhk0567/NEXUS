@@ -76,6 +76,17 @@ class MainActivity : ComponentActivity() {
         // 初始化UserManager
         UserManager.init(this)
         
+        // 初始化服务器配置（从后端动态获取，无需修改代码）
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                ServerConfig.initialize(this@MainActivity)
+                Log.d("MainActivity", "服务器配置初始化完成: ${ServerConfig.CURRENT_SERVER}")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "服务器配置初始化失败: ${e.message}")
+                // 即使初始化失败，也会使用默认配置，应用仍可运行
+            }
+        }
+        
         // 暂时禁用同步功能，避免启动时崩溃
         // syncController = SyncController(this)
         

@@ -365,6 +365,10 @@ app = Flask(__name__)
 # 启用CORS支持，允许跨域请求
 CORS(app, origins=['*'], methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
+# 服务器IP配置
+PUBLIC_IP = "115.190.227.112"  # 公网IP（供客户端外网访问）
+PRIVATE_IP = "172.31.0.2"  # 私网IP（服务器本地访问）
+
 # DeepSeek API配置
 DEEPSEEK_API_KEY = "sk-66a8c43ecb14406ea020b5a9dd47090d"  # 请替换为您的API密钥
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
@@ -963,29 +967,15 @@ def health_check():
 def get_config():
     """获取客户端配置（不包含敏感信息）"""
     try:
-        import socket
-        
-        # 获取本机IP地址
-        def get_local_ip():
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.connect(("8.8.8.8", 80))
-                ip = s.getsockname()[0]
-                s.close()
-                return ip
-            except:
-                return "127.0.0.1"
-        
-        local_ip = get_local_ip()
         server_port = 5000
         
-        # 返回非敏感的配置信息
+        # 返回公网IP配置（供客户端外网访问）
         config = {
             'success': True,
             'server': {
-                'base_url': f'http://{local_ip}:{server_port}',
-                'websocket_url': f'ws://{local_ip}:{server_port}',
-                'api_base': f'http://{local_ip}:{server_port}/api'
+                'base_url': f'http://{PUBLIC_IP}:{server_port}',
+                'websocket_url': f'ws://{PUBLIC_IP}:{server_port}',
+                'api_base': f'http://{PUBLIC_IP}:{server_port}/api'
             },
             'endpoints': {
                 'health': 'api/health',
@@ -3034,11 +3024,10 @@ if __name__ == '__main__':
         except:
             return "127.0.0.1"
     
-    local_ip = get_local_ip()
-    
     logger.info("🚀 启动NEXUS后端服务器...")
-    logger.info(f"🌐 服务地址: http://{local_ip}:5000")
-    logger.info(f"📊 管理员面板: http://{local_ip}:5000/admin")
+    logger.info(f"🌐 公网地址: http://{PUBLIC_IP}:5000")
+    logger.info(f"🔒 私网地址: http://{PRIVATE_IP}:5000")
+    logger.info(f"📊 管理员面板: http://{PRIVATE_IP}:5000/admin")
     
     # 初始化Dolphin ASR模型
     dolphin_available = initialize_dolphin_model()
