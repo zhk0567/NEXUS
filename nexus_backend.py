@@ -379,7 +379,7 @@ VOLCANO_TTS_URL = "https://openspeech.bytedance.com/api/v1/tts"
 VOLCANO_ACCESS_KEY = "2AmQpw1aTtuIaRdMcrPX7K4PChZWus82"
 VOLCANO_APP_ID = "9065017641"
 VOLCANO_RESOURCE_ID = "volc.speech.dialog"
-VOLCANO_APP_KEY = "1-QSPcc75MckNFBAJqQK63KJTNhbDu0d"
+VOLCANO_APP_KEY = "PlgvMymc7f3tQnJ6"  # 更新为正确的App Key
 VOLCANO_REALTIME_WS_URL = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue"
 
 # 豆包语音对话配置

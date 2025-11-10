@@ -234,9 +234,23 @@ fun loginUser(username: String, password: String, callback: (Boolean, String?) -
             }
             reader.close()
             
-            val jsonResponse = JSONObject(response.toString())
+            val responseText = response.toString()
             
-            if (responseCode == HttpURLConnection.HTTP_OK && jsonResponse.getBoolean("success")) {
+            // 检查响应是否为HTML（错误页面）
+            if (responseText.trim().startsWith("<!") || responseText.trim().startsWith("<html")) {
+                callback(false, "服务器返回错误页面，请检查服务器地址是否正确")
+                return@Thread
+            }
+            
+            // 尝试解析JSON
+            val jsonResponse = try {
+                JSONObject(responseText)
+            } catch (e: Exception) {
+                callback(false, "服务器响应格式错误: ${e.message}")
+                return@Thread
+            }
+            
+            if (responseCode == HttpURLConnection.HTTP_OK && jsonResponse.optBoolean("success", false)) {
                 // 登录成功，保存用户信息
                 val user = jsonResponse.getJSONObject("user")
                 val sessionId = jsonResponse.getString("session_id")

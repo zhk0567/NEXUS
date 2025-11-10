@@ -264,7 +264,13 @@ class TTSService(private val context: Context) {
      */
     fun isAudioFileExists(storyId: String): Boolean {
         return try {
-            val assetPath = "story_audio/$storyId.mp3"
+            // 将2025年的日期转换为2024年，因为音频文件是2024年格式
+            val audioFileName = if (storyId.startsWith("2025-01-")) {
+                storyId.replace("2025-01-", "2024-01-")
+            } else {
+                storyId
+            }
+            val assetPath = "story_audio/$audioFileName.mp3"
             context.assets.open(assetPath).use { true }
         } catch (e: Exception) {
             false

@@ -230,6 +230,12 @@ class ReadingProgressManager private constructor(context: Context) {
         try {
             _isSyncing.value = true
             
+            // 验证用户ID
+            if (userId == "anonymous_user" || userId.isEmpty()) {
+                Log.e(TAG, "获取阅读进度失败: 用户未登录")
+                return@withContext Result.failure(Exception("用户未登录，请先登录"))
+            }
+            
             val result = StoryApiService.getReadingProgress(userId, storyId)
             
             when (result) {
@@ -262,7 +268,13 @@ class ReadingProgressManager private constructor(context: Context) {
                 }
                 is ApiResult.Error -> {
                     Log.e(TAG, "获取阅读进度失败: ${result.message}")
-                    Result.failure(Exception(result.message))
+                    // 如果是身份验证失败，提供更友好的错误信息
+                    val errorMessage = if (result.message.contains("用户身份验证失败")) {
+                        "用户身份验证失败，请重新登录"
+                    } else {
+                        result.message
+                    }
+                    Result.failure(Exception(errorMessage))
                 }
             }
         } catch (e: Exception) {
@@ -283,6 +295,12 @@ class ReadingProgressManager private constructor(context: Context) {
         try {
             _isSyncing.value = true
             
+            // 验证用户ID
+            if (userId == "anonymous_user" || userId.isEmpty()) {
+                Log.e(TAG, "获取阅读统计失败: 用户未登录")
+                return@withContext Result.failure(Exception("用户未登录，请先登录"))
+            }
+            
             val result = StoryApiService.getReadingStatistics(userId, days)
             
             when (result) {
@@ -293,7 +311,13 @@ class ReadingProgressManager private constructor(context: Context) {
                 }
                 is ApiResult.Error -> {
                     Log.e(TAG, "获取阅读统计失败: ${result.message}")
-                    Result.failure(Exception(result.message))
+                    // 如果是身份验证失败，提供更友好的错误信息
+                    val errorMessage = if (result.message.contains("用户身份验证失败")) {
+                        "用户身份验证失败，请重新登录"
+                    } else {
+                        result.message
+                    }
+                    Result.failure(Exception(errorMessage))
                 }
             }
         } catch (e: Exception) {
@@ -918,7 +942,13 @@ class ReadingProgressManager private constructor(context: Context) {
      */
     suspend fun loadReadingProgressFromDatabase() {
         try {
-            val userId = getCurrentUserId() ?: return
+            val userId = getCurrentUserId()
+            
+            // 检查用户是否已登录
+            if (userId == null || userId == "anonymous_user" || userId.isEmpty()) {
+                android.util.Log.w("ReadingProgressManager", "用户未登录，跳过加载阅读进度和统计")
+                return
+            }
             
             // 从服务器获取阅读进度
             val progressResult = getReadingProgress(userId)
@@ -933,7 +963,12 @@ class ReadingProgressManager private constructor(context: Context) {
                 
                 android.util.Log.d("ReadingProgressManager", "阅读进度加载成功: ${progressList.size} 条记录")
             } else {
-                android.util.Log.e("ReadingProgressManager", "阅读进度加载失败: ${progressResult.exceptionOrNull()?.message}")
+                val error = progressResult.exceptionOrNull()?.message ?: "未知错误"
+                android.util.Log.e("ReadingProgressManager", "阅读进度加载失败: $error")
+                // 如果是身份验证失败，不显示错误，因为可能是用户未登录
+                if (!error.contains("用户身份验证失败") && !error.contains("用户未登录")) {
+                    android.util.Log.e("ReadingProgressManager", "阅读进度加载失败: $error")
+                }
             }
             
             // 获取阅读统计
@@ -942,7 +977,12 @@ class ReadingProgressManager private constructor(context: Context) {
                 _readingStatistics.value = statisticsResult.getOrNull()
                 android.util.Log.d("ReadingProgressManager", "阅读统计加载成功")
             } else {
-                android.util.Log.e("ReadingProgressManager", "阅读统计加载失败: ${statisticsResult.exceptionOrNull()?.message}")
+                val error = statisticsResult.exceptionOrNull()?.message ?: "未知错误"
+                android.util.Log.e("ReadingProgressManager", "阅读统计加载失败: $error")
+                // 如果是身份验证失败，不显示错误，因为可能是用户未登录
+                if (!error.contains("用户身份验证失败") && !error.contains("用户未登录")) {
+                    android.util.Log.e("ReadingProgressManager", "阅读统计加载失败: $error")
+                }
             }
             
             android.util.Log.d("ReadingProgressManager", "已更新_readingProgress StateFlow，当前完成故事数量: ${_readingProgress.value.count { it.isCompleted }}")

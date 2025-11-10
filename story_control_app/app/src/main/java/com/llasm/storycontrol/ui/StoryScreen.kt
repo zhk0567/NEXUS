@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.llasm.storycontrol.data.*
 import com.llasm.storycontrol.network.StoryApiService
+import com.llasm.storycontrol.ui.LoginDialog
+import com.llasm.storycontrol.ui.AccountSettingsPage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -68,6 +70,7 @@ fun StoryScreen() {
     var showAccountSettings by remember { mutableStateOf(false) }
     var showAboutSettings by remember { mutableStateOf(false) }
     var showAudioPlayer by remember { mutableStateOf(false) }
+    var showLoginDialog by remember { mutableStateOf(false) }
     
     // 滚动状态
     val scrollState = rememberScrollState()
@@ -83,6 +86,20 @@ fun StoryScreen() {
     // 初始化阅读进度管理器
     LaunchedEffect(Unit) {
         readingProgressManager.initialize()
+    }
+    
+    // 应用启动时检查登录状态，如果未登录则显示登录对话框
+    LaunchedEffect(Unit) {
+        // 延迟检查，确保UserManager已初始化
+        delay(100)
+        val isLoggedIn = UserManager.isLoggedIn()
+        android.util.Log.d("StoryScreen", "启动时检查登录状态: $isLoggedIn")
+        if (!isLoggedIn) {
+            android.util.Log.d("StoryScreen", "用户未登录，显示登录对话框")
+            showLoginDialog = true
+        } else {
+            android.util.Log.d("StoryScreen", "用户已登录，跳过登录对话框")
+        }
     }
     
     // 更新当前日期
@@ -362,14 +379,26 @@ fun StoryScreen() {
             }
         )
     } else if (showAccountSettings) {
-        AccountSettingsScreen(
-            themeColors = themeColors,
-            fontStyle = fontStyle,
-            onBack = { 
+        AccountSettingsPage(
+            onBackClick = { 
                 showAccountSettings = false
                 showSettings = true
+            },
+            onShowLoginDialog = {
+                showLoginDialog = true
             }
         )
+        
+        // 显示登录对话框
+        if (showLoginDialog) {
+            LoginDialog(
+                onDismiss = { showLoginDialog = false },
+                onLoginSuccess = {
+                    showLoginDialog = false
+                    // 登录成功后刷新账号设置页面
+            }
+        )
+        }
     } else if (showSystemSettings) {
         SystemSettingsScreen(
             themeColors = themeColors,
@@ -463,15 +492,22 @@ fun StoryScreen() {
 
                             // 尝试使用assets中的音频文件
                             try {
-                                val audioFileName = "story_audio/${currentStory?.id ?: "2024-01-01"}.mp3"
-                                android.util.Log.d("StoryScreen", "尝试加载音频文件: $audioFileName")
-                                val assetFileDescriptor = context.assets.openFd(audioFileName)
+                                // 将2025年的日期转换为2024年，因为音频文件是2024年格式
+                                val storyId = currentStory?.id ?: "2024-01-01"
+                                val audioFileName = if (storyId.startsWith("2025-01-")) {
+                                    storyId.replace("2025-01-", "2024-01-")
+                                } else {
+                                    storyId
+                                }
+                                val audioFilePath = "story_audio/$audioFileName.mp3"
+                                android.util.Log.d("StoryScreen", "尝试加载音频文件: $audioFilePath (原始ID: $storyId)")
+                                val assetFileDescriptor = context.assets.openFd(audioFilePath)
                                 mp.setDataSource(assetFileDescriptor.fileDescriptor, assetFileDescriptor.startOffset, assetFileDescriptor.length)
                                 assetFileDescriptor.close()
                                 mp.prepare()
                                 mediaPlayer = mp
                                 duration = mp.duration
-                                android.util.Log.d("StoryScreen", "Assets音频初始化成功，文件: $audioFileName，时长: ${duration}ms")
+                                android.util.Log.d("StoryScreen", "Assets音频初始化成功，文件: $audioFilePath，时长: ${duration}ms")
                             } catch (e: Exception) {
                                 android.util.Log.e("StoryScreen", "Assets音频初始化失败: ${e.message}")
                                 // 如果assets失败，尝试使用系统内置音频
@@ -895,5 +931,19 @@ fun StoryScreen() {
                 }
             }
         }
+    }
+    
+    // 全局登录对话框（在应用启动时或需要登录时显示）
+    if (showLoginDialog) {
+        LoginDialog(
+            onDismiss = { showLoginDialog = false },
+            onLoginSuccess = {
+                showLoginDialog = false
+                // 登录成功后刷新数据
+                CoroutineScope(Dispatchers.IO).launch {
+                    readingProgressManager.loadReadingProgressFromDatabase()
+                }
+            }
+        )
     }
 }

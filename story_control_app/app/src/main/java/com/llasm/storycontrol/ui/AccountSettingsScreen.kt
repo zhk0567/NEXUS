@@ -1,5 +1,6 @@
 package com.llasm.storycontrol.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +28,10 @@ fun AccountSettingsScreen(
     fontStyle: FontStyle,
     onBack: () -> Unit
 ) {
+    // 处理手机返回键
+    BackHandler {
+        onBack()
+    }
     val isLoggedIn = remember { mutableStateOf(true) }
     val currentUser = remember { mutableStateOf("testuser1") }
     

@@ -75,9 +75,23 @@ fun loginUser(username: String, password: String, callback: (Boolean, String?) -
             
             val responseText = response.toString()
             android.util.Log.d("LoginDialog", "服务器响应: $responseText")
-            val jsonResponse = JSONObject(responseText)
             
-            if (responseCode == HttpURLConnection.HTTP_OK && jsonResponse.getBoolean("success")) {
+            // 检查响应是否为HTML（错误页面）
+            if (responseText.trim().startsWith("<!") || responseText.trim().startsWith("<html")) {
+                callback(false, "服务器返回错误页面，请检查服务器地址是否正确")
+                return@Thread
+            }
+            
+            // 尝试解析JSON
+            val jsonResponse = try {
+                JSONObject(responseText)
+            } catch (e: Exception) {
+                android.util.Log.e("LoginDialog", "JSON解析失败", e)
+                callback(false, "服务器响应格式错误: ${e.message}")
+                return@Thread
+            }
+            
+            if (responseCode == HttpURLConnection.HTTP_OK && jsonResponse.optBoolean("success", false)) {
                 // 登录成功，保存用户信息
                 val user = jsonResponse.getJSONObject("user")
                 val sessionId = jsonResponse.getString("session_id")

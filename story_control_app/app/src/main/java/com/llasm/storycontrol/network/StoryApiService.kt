@@ -68,8 +68,17 @@ object StoryApiService {
             val response = BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
             Log.d(TAG, "开始阅读会话响应: $response")
             
+            // 检查响应是否为HTML（错误页面）
+            if (response.trim().startsWith("<!") || response.trim().startsWith("<html")) {
+                return@withContext ApiResult.Error("服务器返回错误页面，请检查服务器地址是否正确")
+            }
+            
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                val jsonResponse = JSONObject(response)
+                val jsonResponse = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 val sessionResponse = ReadingSessionResponse(
                     success = jsonResponse.getBoolean("success"),
                     sessionId = jsonResponse.getString("session_id"),
@@ -77,7 +86,11 @@ object StoryApiService {
                 )
                 ApiResult.Success(sessionResponse)
             } else {
-                val errorJson = JSONObject(response)
+                val errorJson = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 ApiResult.Error(errorJson.getString("error"))
             }
             
@@ -128,15 +141,28 @@ object StoryApiService {
             val response = BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
             Log.d(TAG, "结束阅读会话响应: $response")
             
+            // 检查响应是否为HTML（错误页面）
+            if (response.trim().startsWith("<!") || response.trim().startsWith("<html")) {
+                return@withContext ApiResult.Error("服务器返回错误页面，请检查服务器地址是否正确")
+            }
+            
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                val jsonResponse = JSONObject(response)
+                val jsonResponse = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 val apiResponse = ApiResponse(
                     success = jsonResponse.getBoolean("success"),
                     message = jsonResponse.getString("message")
                 )
                 ApiResult.Success(apiResponse)
             } else {
-                val errorJson = JSONObject(response)
+                val errorJson = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 ApiResult.Error(errorJson.getString("error"))
             }
             
@@ -197,8 +223,17 @@ object StoryApiService {
             val response = BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
             Log.d(TAG, "更新阅读进度响应: $response")
             
+            // 检查响应是否为HTML（错误页面）
+            if (response.trim().startsWith("<!") || response.trim().startsWith("<html")) {
+                return@withContext ApiResult.Error("服务器返回错误页面，请检查服务器地址是否正确")
+            }
+            
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                val jsonResponse = JSONObject(response)
+                val jsonResponse = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 val progressResponse = ReadingProgressResponse(
                     success = jsonResponse.getBoolean("success"),
                     progressPercentage = jsonResponse.getDouble("progress_percentage"),
@@ -207,7 +242,11 @@ object StoryApiService {
                 )
                 ApiResult.Success(progressResponse)
             } else {
-                val errorJson = JSONObject(response)
+                val errorJson = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 ApiResult.Error(errorJson.getString("error"))
             }
             
@@ -255,8 +294,17 @@ object StoryApiService {
             val response = BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
             Log.d(TAG, "获取阅读进度响应: $response")
             
+            // 检查响应是否为HTML（错误页面）
+            if (response.trim().startsWith("<!") || response.trim().startsWith("<html")) {
+                return@withContext ApiResult.Error("服务器返回错误页面，请检查服务器地址是否正确")
+            }
+            
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                val jsonResponse = JSONObject(response)
+                val jsonResponse = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 val progressList = mutableListOf<NetworkReadingProgress>()
                 
                 val progressArray = jsonResponse.getJSONArray("progress")
@@ -284,7 +332,11 @@ object StoryApiService {
                 )
                 ApiResult.Success(progressListResponse)
             } else {
-                val errorJson = JSONObject(response)
+                val errorJson = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 ApiResult.Error(errorJson.getString("error"))
             }
             
@@ -351,15 +403,28 @@ object StoryApiService {
             val response = BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
             Log.d(TAG, "记录故事交互响应: $response")
             
+            // 检查响应是否为HTML（错误页面）
+            if (response.trim().startsWith("<!") || response.trim().startsWith("<html")) {
+                return@withContext ApiResult.Error("服务器返回错误页面，请检查服务器地址是否正确")
+            }
+            
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                val jsonResponse = JSONObject(response)
+                val jsonResponse = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 val apiResponse = ApiResponse(
                     success = jsonResponse.getBoolean("success"),
                     message = jsonResponse.getString("message")
                 )
                 ApiResult.Success(apiResponse)
             } else {
-                val errorJson = JSONObject(response)
+                val errorJson = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 ApiResult.Error(errorJson.getString("error"))
             }
             
@@ -397,8 +462,17 @@ object StoryApiService {
             val response = BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
             Log.d(TAG, "获取阅读统计响应: $response")
             
+            // 检查响应是否为HTML（错误页面）
+            if (response.trim().startsWith("<!") || response.trim().startsWith("<html")) {
+                return@withContext ApiResult.Error("服务器返回错误页面，请检查服务器地址是否正确")
+            }
+            
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                val jsonResponse = JSONObject(response)
+                val jsonResponse = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 val statisticsJson = jsonResponse.getJSONObject("statistics")
                 
                 val recentStories = mutableListOf<RecentStory>()
@@ -443,7 +517,11 @@ object StoryApiService {
                 )
                 ApiResult.Success(statisticsResponse)
             } else {
-                val errorJson = JSONObject(response)
+                val errorJson = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 ApiResult.Error(errorJson.getString("error"))
             }
             
@@ -502,7 +580,16 @@ object StoryApiService {
                 reader.close()
                 inputStream.close()
                 
-                val jsonResponse = JSONObject(responseBody)
+                // 检查响应是否为HTML（错误页面）
+                if (responseBody.trim().startsWith("<!") || responseBody.trim().startsWith("<html")) {
+                    return@withContext ApiResult.Error("服务器返回错误页面，请检查服务器地址是否正确")
+                }
+                
+                val jsonResponse = try {
+                    JSONObject(responseBody)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 Log.d(TAG, "完成阅读API响应: $responseBody")
                 
                 if (jsonResponse.optBoolean("success", false)) {
@@ -569,8 +656,17 @@ object StoryApiService {
             val response = BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
             Log.d(TAG, "获取活跃故事列表响应: $response")
             
+            // 检查响应是否为HTML（错误页面）
+            if (response.trim().startsWith("<!") || response.trim().startsWith("<html")) {
+                return@withContext ApiResult.Error("服务器返回错误页面，请检查服务器地址是否正确")
+            }
+            
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                val jsonResponse = JSONObject(response)
+                val jsonResponse = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 val storiesList = mutableListOf<Story>()
                 
                 val storiesArray = jsonResponse.getJSONArray("stories")
@@ -593,7 +689,11 @@ object StoryApiService {
                 )
                 ApiResult.Success(storiesListResponse)
             } else {
-                val errorJson = JSONObject(response)
+                val errorJson = try {
+                    JSONObject(response)
+                } catch (e: org.json.JSONException) {
+                    return@withContext ApiResult.Error("服务器响应格式错误: ${e.message}")
+                }
                 ApiResult.Error(errorJson.getString("error"))
             }
             

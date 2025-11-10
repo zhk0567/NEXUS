@@ -208,7 +208,9 @@ class RealtimeWebSocketClient(
             
             webSocket = client?.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    Log.d(TAG, "WebSocket连接已建立")
+                    Log.d(TAG, "✅ WebSocket连接已建立")
+                    Log.d(TAG, "📋 响应码: ${response.code}, 响应消息: ${response.message}")
+                    Log.d(TAG, "📋 响应头: ${response.headers}")
                     isConnected = true
                     logId = response.header("X-Tt-Logid") ?: ""
                     Log.d(TAG, "服务器响应日志ID: $logId")
@@ -231,7 +233,8 @@ class RealtimeWebSocketClient(
                 }
                 
                 override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                    Log.d(TAG, "收到二进制消息，大小: ${bytes.size}")
+                    Log.d(TAG, "✅ 收到二进制消息，大小: ${bytes.size} 字节")
+                    Log.d(TAG, "📊 消息前16字节: ${bytes.toByteArray().take(16).joinToString(separator = " ") { "%02X".format(it) }}")
                     scope.launch(Dispatchers.Main) {
                         onMessage("📥 收到服务器响应: ${bytes.size} 字节")
                         handleBinaryMessage(bytes.toByteArray())
@@ -699,8 +702,10 @@ class RealtimeWebSocketClient(
      */
     private fun handleBinaryMessage(data: ByteArray) {
         try {
+            Log.d(TAG, "🔍 开始解析服务器响应: ${data.size} 字节")
             onMessage("🔍 解析服务器响应: ${data.size} 字节")
             val response = parseResponse(data)
+            Log.d(TAG, "✅ 解析完成，消息类型: ${response["message_type"]}, 事件: ${response["event"]}")
             onMessage("📋 解析结果: ${response.keys.joinToString()}")
             
             // 收到任何响应都取消超时检测
@@ -1031,7 +1036,10 @@ class RealtimeWebSocketClient(
     private fun parseResponse(data: ByteArray): Map<String, Any> {
         val result = mutableMapOf<String, Any>()
         
-        if (data.isEmpty()) return result
+        if (data.isEmpty()) {
+            Log.w(TAG, "⚠️ 收到空消息")
+            return result
+        }
         
         val protocolVersion = (data[0].toInt() and 0xFF) shr 4
         val headerSize = data[0].toInt() and 0x0F
@@ -1041,8 +1049,13 @@ class RealtimeWebSocketClient(
         val messageCompression = data[2].toInt() and 0x0F
         val reserved = data[3].toInt() and 0xFF
         
+        Log.d(TAG, "📊 协议版本: $protocolVersion, 头部大小: $headerSize, 消息类型: $messageType (0x%02X)".format(messageType))
+        Log.d(TAG, "📊 消息类型标志: $messageTypeSpecificFlags, 序列化方法: $serializationMethod, 压缩: $messageCompression")
+        
         val headerExtensions = data.sliceArray(4 until headerSize * 4)
         val payload = data.sliceArray(headerSize * 4 until data.size)
+        
+        Log.d(TAG, "📊 头部扩展: ${headerExtensions.size} 字节, 负载: ${payload.size} 字节")
         
         when (messageType) {
             SERVER_FULL_RESPONSE, SERVER_ACK -> {
@@ -1088,6 +1101,13 @@ class RealtimeWebSocketClient(
                 val payloadSize = bytesToInt(payload.sliceArray(4..7), ByteOrder.BIG_ENDIAN)
                 val payloadMsg = payload.sliceArray(8 until 8 + payloadSize)
                 result["payload_msg"] = String(payloadMsg)
+                Log.d(TAG, "❌ 服务器错误: 代码=${result["code"]}, 消息=${result["payload_msg"]}")
+            }
+            else -> {
+                Log.w(TAG, "⚠️ 未知消息类型: $messageType (0x%02X), 数据大小: ${data.size}".format(messageType))
+                result["message_type"] = "UNKNOWN"
+                result["raw_data"] = data
+                result["message_type_code"] = messageType
             }
         }
         

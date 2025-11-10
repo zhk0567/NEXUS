@@ -35,6 +35,10 @@ fun SettingsScreen(
     onAccountSettings: () -> Unit,
     onAboutSettings: () -> Unit
 ) {
+    // 处理手机返回键
+    BackHandler {
+        onBack()
+    }
     Scaffold(
         topBar = {
             TopAppBar(

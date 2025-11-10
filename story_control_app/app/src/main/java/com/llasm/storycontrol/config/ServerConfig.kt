@@ -202,7 +202,13 @@ object ServerConfig {
      */
     fun getApiUrl(endpoint: String): String {
         val base = CURRENT_API_BASE
-        val path = endpoint.removePrefix("/")
+        var path = endpoint.removePrefix("/")
+        
+        // 如果base已经包含/api，且endpoint也包含api/，则移除endpoint中的api/前缀
+        if (base.contains("/api") && path.startsWith("api/")) {
+            path = path.removePrefix("api/")
+        }
+        
         return if (base.endsWith("/")) {
             "$base$path"
         } else {
