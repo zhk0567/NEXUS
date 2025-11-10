@@ -1,0 +1,32 @@
+<!--history.wxml-->
+<view class="container">
+  <view wx:if="{{conversations.length === 0}}" class="empty">
+    <text class="empty-text">暂无对话记录</text>
+  </view>
+  
+  <view wx:else class="conversation-list">
+    <view 
+      wx:for="{{conversations}}" 
+      wx:key="id" 
+      class="conversation-item {{currentConversationId === item.id ? 'active' : ''}}"
+      bindtap="selectConversation"
+      data-id="{{item.id}}"
+    >
+      <view class="conversation-info">
+        <text class="conversation-title">{{item.title}}</text>
+        <text class="conversation-time">{{formatTime(item.lastMessageTime)}}</text>
+      </view>
+      <view class="conversation-actions">
+        <button 
+          class="delete-btn" 
+          bindtap="deleteConversation"
+          data-id="{{item.id}}"
+          catchtap="true"
+        >
+          删除
+        </button>
+      </view>
+    </view>
+  </view>
+</view>
+

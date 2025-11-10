@@ -1,0 +1,185 @@
+/* index.wxss */
+.container {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #f5f5f5;
+}
+
+.messages-container {
+  flex: 1;
+  padding: 20rpx;
+  overflow-y: auto;
+}
+
+.message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.message-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 20rpx;
+}
+
+.message-item.user {
+  justify-content: flex-end;
+}
+
+.message-item.assistant {
+  justify-content: flex-start;
+}
+
+.message-content {
+  max-width: 70%;
+  padding: 20rpx 30rpx;
+  border-radius: 20rpx;
+  position: relative;
+}
+
+.message-item.user .message-content {
+  background-color: #07c160;
+  color: #ffffff;
+}
+
+.message-item.assistant .message-content {
+  background-color: #ffffff;
+  color: #333333;
+  box-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.1);
+}
+
+.message-text {
+  font-size: 32rpx;
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+
+.message-time {
+  font-size: 24rpx;
+  color: #999999;
+  margin-top: 10rpx;
+  opacity: 0.7;
+}
+
+.message-item.user .message-time {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.message-actions {
+  display: flex;
+  align-items: center;
+}
+
+.play-btn {
+  width: 60rpx;
+  height: 60rpx;
+  border-radius: 50%;
+  background-color: #f0f0f0;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.play-btn .icon {
+  font-size: 32rpx;
+}
+
+.cursor {
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.status-indicator {
+  padding: 20rpx;
+  text-align: center;
+  background-color: #ffffff;
+  border-top: 1rpx solid #e0e0e0;
+  font-size: 28rpx;
+  color: #666666;
+}
+
+.input-bar {
+  background-color: #ffffff;
+  border-top: 1rpx solid #e0e0e0;
+  padding: 20rpx;
+}
+
+.input-container {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  min-height: 88rpx;
+}
+
+.input {
+  flex: 1;
+  padding: 28rpx 30rpx;
+  padding-top: 28rpx;
+  padding-bottom: 28rpx;
+  background-color: #f5f5f5;
+  border-radius: 40rpx;
+  font-size: 32rpx;
+  line-height: 1.8;
+  border: 1rpx solid #e0e0e0;
+  box-sizing: border-box;
+  height: auto;
+  min-height: 88rpx;
+  color: #333333;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  vertical-align: middle;
+}
+
+.input::placeholder {
+  color: #999999;
+  line-height: 1.8;
+  vertical-align: middle;
+}
+
+.actions {
+  display: flex;
+  gap: 20rpx;
+  align-items: center;
+}
+
+.record-btn {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  background-color: #f0f0f0;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.record-btn.recording {
+  background-color: #ff4444;
+}
+
+.record-btn .icon {
+  font-size: 40rpx;
+}
+
+.send-btn {
+  padding: 20rpx 40rpx;
+  background-color: #07c160;
+  color: #ffffff;
+  border-radius: 40rpx;
+  border: none;
+  font-size: 32rpx;
+}
+
+.send-btn[disabled] {
+  background-color: #cccccc;
+  color: #999999;
+}
+
