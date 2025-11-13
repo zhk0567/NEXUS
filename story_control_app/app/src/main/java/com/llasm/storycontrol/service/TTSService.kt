@@ -142,7 +142,7 @@ class TTSService(private val context: Context) {
         if (!storyTitle.isNullOrBlank()) {
             val cleanedTitle = storyTitle
                 .replace(Regex("[<>:\"/\\\\|?*]"), "_")  // 标准特殊字符
-                .replace(Regex("[：""''""]"), "_")  // 中文标点符号
+                .replace(Regex("[：\"\"''""]"), "_")  // 中文标点符号
                 .replace(Regex("--+"), "-")  // 多个破折号合并
                 .trim()
             
@@ -170,7 +170,7 @@ class TTSService(private val context: Context) {
             val fuzzyMatch = availableFiles.find { fileName ->
                 val fileNameWithoutExt = fileName.removeSuffix(".mp3")
                 // 检查标题是否包含文件名的主要部分，或文件名包含标题的主要部分
-                val titleWords = storyTitle.split(Regex("[\\s\\-\\-：：""''""]")).filter { it.length > 1 }
+                val titleWords = storyTitle.split(Regex("[\\s\\-：：\"\"''""]")).filter { word -> word.length > 1 }
                 titleWords.any { word ->
                     fileNameWithoutExt.contains(word, ignoreCase = true) ||
                     word.contains(fileNameWithoutExt.take(5), ignoreCase = true)
