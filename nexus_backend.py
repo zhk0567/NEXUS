@@ -25,7 +25,7 @@ from database_manager import db_manager
 
 # 性能优化：配置日志 - 简化输出，只显示警告和错误
 logging.basicConfig(
-    level=logging.WARNING,  # 只显示WARNING和ERROR级别
+    level=logging.ERROR,  # 只显示ERROR级别
     format='%(levelname)s - %(message)s',  # 简化格式，移除时间戳
     handlers=[
         logging.StreamHandler(),
@@ -33,6 +33,11 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# 禁用Flask和Werkzeug的请求日志
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
+logging.getLogger('flask').setLevel(logging.ERROR)
+
 # 为关键启动信息创建单独的logger
 startup_logger = logging.getLogger('startup')
 startup_logger.setLevel(logging.INFO)
@@ -368,6 +373,8 @@ except ImportError as e:
     logger.warning("将使用模拟ASR结果")
 
 app = Flask(__name__)
+# 禁用Flask的请求日志
+app.logger.disabled = True
 
 # 启用CORS支持，允许跨域请求
 CORS(app, origins=['*'], methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
@@ -3087,6 +3094,11 @@ if __name__ == '__main__':
         logger.error(f"启动自动恢复监控失败: {e}")
     
     startup_logger.info("✅ 服务器已启动，等待请求...")
+    
+    # 禁用Flask的请求日志输出
+    import werkzeug
+    werkzeug_logger = logging.getLogger('werkzeug')
+    werkzeug_logger.setLevel(logging.ERROR)
     
     try:
         app.run(host='0.0.0.0', port=5000, debug=False)

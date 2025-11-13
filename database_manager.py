@@ -8,6 +8,7 @@ import uuid
 import json
 import logging
 import time
+import threading
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from database_config import DATABASE_CONFIG, CREATE_TABLES_SQL, INIT_DATABASE_SQL, DEFAULT_ADMIN
@@ -15,12 +16,14 @@ from database_config import DATABASE_CONFIG, CREATE_TABLES_SQL, INIT_DATABASE_SQ
 logger = logging.getLogger(__name__)
 
 class DatabaseManager:
-    """数据库管理器 - 优化版本"""
+    """数据库管理器 - 优化版本（线程安全）"""
     
     def __init__(self):
         self.connection = None
         self.connection_pool = []
         self.max_connections = 5
+        # 线程锁保护连接访问
+        self._lock = threading.Lock()
         # 性能优化：添加查询缓存
         self.query_cache = {}
         self.cache_ttl = 300  # 5分钟缓存
@@ -55,13 +58,14 @@ class DatabaseManager:
             raise
     
     def reconnect(self):
-        """重新连接数据库"""
+        """重新连接数据库（线程安全）"""
         try:
             if self.connection:
                 try:
                     self.connection.close()
                 except:
                     pass  # 忽略关闭时的错误
+                self.connection = None
             self.connect()
             # 数据库重新连接成功，不输出日志
         except Exception as e:
@@ -145,29 +149,32 @@ class DatabaseManager:
         return self.hash_password(password) == password_hash
     
     def execute_with_retry(self, operation, *args, **kwargs):
-        """带重试机制的数据库操作"""
+        """带重试机制的数据库操作（线程安全）"""
         for attempt in range(self.max_retries):
             try:
-                # 检查连接是否有效
-                if not self.connection or not self.connection.open:
-                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{self.max_retries})")
-                    self.reconnect()
-                else:
-                    # 测试连接是否真的可用
-                    try:
-                        self.connection.ping(reconnect=False)
-                    except:
-                        logger.warning(f"⚠️ 数据库连接测试失败，尝试重新连接 (尝试 {attempt + 1}/{self.max_retries})")
+                with self._lock:
+                    # 检查连接是否有效
+                    if not self.connection or not self.connection.open:
+                        logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{self.max_retries})")
                         self.reconnect()
-                
-                return operation(*args, **kwargs)
+                    else:
+                        # 测试连接是否真的可用
+                        try:
+                            self.connection.ping(reconnect=False)
+                        except:
+                            logger.warning(f"⚠️ 数据库连接测试失败，尝试重新连接 (尝试 {attempt + 1}/{self.max_retries})")
+                            self.reconnect()
+                    
+                    # 在锁内执行操作，确保线程安全
+                    return operation(*args, **kwargs)
                 
             except (pymysql.OperationalError, pymysql.InterfaceError, pymysql.ProgrammingError, 
                     pymysql.Error, ConnectionError, OSError) as e:
                 logger.error(f"❌ 数据库操作失败 (尝试 {attempt + 1}/{self.max_retries}): {e}")
                 if attempt < self.max_retries - 1:
                     try:
-                        self.reconnect()
+                        with self._lock:
+                            self.reconnect()
                     except:
                         pass  # 重连失败，继续重试
                     time.sleep(self.retry_delay * (attempt + 1))  # 递增延迟
@@ -181,20 +188,37 @@ class DatabaseManager:
                     raise
     
     def user_exists(self, user_id: str) -> bool:
-        """检查用户是否存在"""
-        def _check_user():
-            with self.connection.cursor(pymysql.cursors.DictCursor) as cursor:
-                # 先尝试按user_id查找，如果没找到再按username查找
-                sql = "SELECT COUNT(*) as count FROM users WHERE user_id = %s OR username = %s"
-                cursor.execute(sql, (user_id, user_id))
-                result = cursor.fetchone()
-                return result['count'] > 0 if result else False
-        
-        try:
-            return self.execute_with_retry(_check_user)
-        except Exception as e:
-            logger.error(f"❌ 检查用户存在失败: {e}")
-            return False
+        """检查用户是否存在（使用独立连接以避免并发冲突）"""
+        max_retries = 3
+        connection = None
+        for attempt in range(max_retries):
+            try:
+                # 使用独立连接避免并发冲突
+                connection = self._get_fresh_connection()
+                
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                    # 先尝试按user_id查找，如果没找到再按username查找
+                    sql = "SELECT COUNT(*) as count FROM users WHERE user_id = %s OR username = %s"
+                    cursor.execute(sql, (user_id, user_id))
+                    result = cursor.fetchone()
+                    exists = result['count'] > 0 if result else False
+                    
+                    if connection:
+                        connection.close()
+                    return exists
+                    
+            except Exception as e:
+                logger.error(f"❌ 检查用户存在失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if connection:
+                    try:
+                        connection.close()
+                    except:
+                        pass
+                if attempt < max_retries - 1:
+                    time.sleep(self.retry_delay * (attempt + 1))
+                else:
+                    return False
+        return False
     
     def create_user(self, user_id: str, username: str, password: str, email: str = None, is_active: bool = True) -> bool:
         """创建用户"""
@@ -1057,15 +1081,15 @@ class DatabaseManager:
                               current_position: int, total_length: int, 
                               device_info: str = None, username: str = None, 
                               completion_mode: str = None) -> bool:
-        """更新阅读进度"""
+        """更新阅读进度（使用独立连接以避免并发冲突）"""
         max_retries = 3
+        connection = None
         for attempt in range(max_retries):
             try:
-                if not self.connection or not self.connection.open:
-                    logger.warning(f"⚠️ 数据库连接已关闭，尝试重新连接 (尝试 {attempt + 1}/{max_retries})")
-                    self.reconnect()
-
-                with self.connection.cursor() as cursor:
+                # 使用独立连接避免并发冲突
+                connection = self._get_fresh_connection()
+                
+                with connection.cursor() as cursor:
                     # 计算阅读进度百分比
                     reading_progress = (current_position / total_length * 100) if total_length > 0 else 0
                     # 不自动设置完成状态，只有通过完成阅读API才能设置
@@ -1106,12 +1130,19 @@ class DatabaseManager:
                             reading_progress, is_completed, completion_mode, is_completed, device_info
                         ))
                     
-                    self.connection.commit()
+                    connection.commit()
                     # 更新阅读进度成功，不输出日志
+                    if connection:
+                        connection.close()
                     return True
 
             except Exception as e:
                 logger.error(f"❌ 更新阅读进度失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if connection:
+                    try:
+                        connection.close()
+                    except:
+                        pass
                 if attempt < max_retries - 1:
                     self.reconnect()
                     time.sleep(1)
