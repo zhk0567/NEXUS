@@ -337,10 +337,11 @@ fun StoryScreen() {
                 )
             } else if (hasStartedTextReading && !isStoryCompleted) {
                 // 更新阅读进度
-            readingProgressManager.updateTextReadingProgress(
-                    story.id, 
-                    scrollState.value, 
+                readingProgressManager.updateTextReadingProgress(
+                    storyId = story.id, 
+                    position = scrollState.value, 
                     totalLength = scrollState.maxValue,
+                    storyTitle = story.title,
                     isUserScroll = true
                 )
             }

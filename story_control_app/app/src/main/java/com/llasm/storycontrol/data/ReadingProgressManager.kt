@@ -583,15 +583,22 @@ class ReadingProgressManager private constructor(context: Context) {
      */
     suspend fun updateTextReadingProgress(storyId: String, position: Int, totalLength: Int, storyTitle: String = "故事标题", isUserScroll: Boolean = true) {
         val currentState = (textReadingState as MutableStateFlow).value
+        // 如果阅读状态未激活，尝试恢复阅读状态
         if (!currentState.isReading) {
-            android.util.Log.d("ReadingProgressManager", "文本阅读状态未激活，跳过更新")
-            return
+            android.util.Log.d("ReadingProgressManager", "文本阅读状态未激活，尝试恢复阅读状态")
+            resumeTextReading(storyId, "")
+            // 如果恢复后仍然未激活，则跳过更新
+            val newState = (textReadingState as MutableStateFlow).value
+            if (!newState.isReading) {
+                android.util.Log.d("ReadingProgressManager", "无法恢复阅读状态，跳过更新")
+                return
+            }
         }
         
-        // 如果已经空闲，直接返回，不进行任何更新
-        if (currentState.isIdle) {
-            android.util.Log.d("ReadingProgressManager", "检测到空闲状态，跳过进度更新")
-            return
+        // 如果已经空闲，但用户正在滚动，则恢复阅读状态
+        if (currentState.isIdle && isUserScroll) {
+            android.util.Log.d("ReadingProgressManager", "检测到用户滚动，恢复阅读状态")
+            resumeTextReading(storyId, "")
         }
         
         val currentTime = System.currentTimeMillis()
@@ -664,8 +671,8 @@ class ReadingProgressManager private constructor(context: Context) {
             minimumReadingTime = currentState.minimumReadingTime
         )
         
-        // 同步到数据库（只在位置或进度有增长时）
-        if (isUserScroll && (scrollPosition > currentState.currentPosition || finalProgress > currentState.progress)) {
+        // 同步到数据库（当滚动位置变化或进度有增长时）
+        if (isUserScroll && (scrollPosition != currentState.currentPosition || finalProgress > currentState.progress)) {
             syncProgressToDatabase(storyId, scrollPosition, totalLength, finalProgress, storyTitle)
         }
     }
