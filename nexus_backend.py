@@ -2214,7 +2214,9 @@ def update_reading_progress():
         progress_percentage = (current_position / total_length * 100) if total_length > 0 else 0
         
         # 获取故事的实际完成状态（不基于进度自动判断）
-        reading_progress = db_manager.get_reading_progress(user_id, story_id)
+        reading_progress_list = db_manager.get_reading_progress(user_id, story_id)
+        # get_reading_progress 返回的是列表，需要取第一个元素
+        reading_progress = reading_progress_list[0] if reading_progress_list else None
         is_completed = reading_progress.get('is_completed', False) if reading_progress else False
         
         return jsonify({
