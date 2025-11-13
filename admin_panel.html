@@ -695,8 +695,12 @@
 <body>
     <div class="container">
         <div class="header">
+            <div class="header-actions">
+                <button class="logout-btn" onclick="showLogoutConfirm()">退出登录</button>
+            </div>
             <h1>📚 故事控制管理员面板</h1>
             <p>管理所有用户的阅读进度和完成状态</p>
+            <p style="font-size: 0.9rem; margin-top: 10px; opacity: 0.8;">⚠️ 系统仅允许 user01-user10 这10个账号登录</p>
         </div>
         
         <div class="content">
@@ -2355,6 +2359,33 @@
             const modal = document.getElementById(modalId);
             if (modal) {
                 modal.remove();
+            }
+        }
+        
+        // 显示退出登录确认对话框
+        function showLogoutConfirm() {
+            if (confirm('确定要退出登录吗？')) {
+                logout();
+            }
+        }
+        
+        // 退出登录
+        async function logout() {
+            try {
+                // 清除本地存储（如果有）
+                localStorage.clear();
+                sessionStorage.clear();
+                
+                // 显示提示信息
+                showSuccess('已退出登录');
+                
+                // 延迟后刷新页面（清除所有状态）
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } catch (error) {
+                console.error('Logout error:', error);
+                showError('退出登录失败: ' + error.message);
             }
         }
         
