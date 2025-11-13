@@ -945,18 +945,27 @@
             const tbody = document.getElementById('usersTableBody');
             tbody.innerHTML = '';
             
+            // 定义允许的10个账号
+            const ALLOWED_USERS = ['user01', 'user02', 'user03', 'user04', 'user05', 
+                                  'user06', 'user07', 'user08', 'user09', 'user10'];
+            
             users.forEach(user => {
+                // 检查用户是否在允许列表中
+                const isAllowed = ALLOWED_USERS.includes(user.username);
+                const rowStyle = isAllowed ? '' : 'style="background-color: #fff3cd; opacity: 0.7;"';
+                
                 // 确保数值是数字类型
                 const totalStories = parseInt(user.total_stories) || 0;
                 const completedStories = parseInt(user.completed_stories) || 0;
                 const completionRate = totalStories > 0 ? ((completedStories / totalStories) * 100).toFixed(1) : 0;
                 const row = document.createElement('tr');
+                row.setAttribute('style', rowStyle);
                 row.innerHTML = `
-                    <td>${user.username}</td>
+                    <td>${user.username} ${isAllowed ? '✅' : '❌'}</td>
                     <td>
-                        <span class="password-display" id="password-display-${user.user_id}">
+                        ${isAllowed ? `<span class="password-display" id="password-display-${user.user_id}">
                             <span class="loading-text">加载中...</span>
-                        </span>
+                        </span>` : '<span style="color: #999;">禁止登录</span>'}
                     </td>
                     <td>${formatDate(user.created_at)}</td>
                     <td>${formatDate(user.last_login_at)}</td>
@@ -965,7 +974,7 @@
                     <td>${completionRate}%</td>
                     <td>
                         <button class="btn btn-primary" onclick="viewUserDetails('${user.user_id}')">查看详情</button>
-                        <button class="btn btn-warning" onclick="showPasswordModal('${user.user_id}', '${user.username}')">密码管理</button>
+                        ${isAllowed ? `<button class="btn btn-warning" onclick="showPasswordModal('${user.user_id}', '${user.username}')">密码管理</button>` : ''}
                     </td>
                 `;
                 tbody.appendChild(row);
