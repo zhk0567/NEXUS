@@ -621,6 +621,7 @@ class DatabaseManager:
                 else:
                     # 直接使用提供的session_id，不做任何验证或复用检查
                     # 使用提供的session，不输出日志
+                    pass
                 
                 with self.connection.cursor() as cursor:
                     sql = """
