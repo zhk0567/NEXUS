@@ -25,6 +25,10 @@ import com.llasm.storycontrol.data.ThemeColors
 import com.llasm.storycontrol.data.FontStyle
 import com.llasm.storycontrol.data.UserData
 import com.llasm.storycontrol.data.UserManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -92,7 +96,13 @@ fun AccountSettingsPage(
             )
         }
     ) { paddingValues ->
-        if (isLoggedIn && userData != null) {
+        // 获取协程作用域
+        val coroutineScope = rememberCoroutineScope()
+        
+        // 保存userData到局部变量以避免smart cast问题
+        val currentUserData = userData
+        
+        if (isLoggedIn && currentUserData != null) {
             // 已登录状态 - 显示用户信息
             LazyColumn(
                 modifier = Modifier
@@ -106,7 +116,7 @@ fun AccountSettingsPage(
                 // 用户头像和基本信息卡片
                 item {
                     UserProfileCard(
-                        userData = userData,
+                        userData = currentUserData,
                         themeColors = themeColors,
                         fontStyle = fontStyle
                     )
@@ -115,7 +125,7 @@ fun AccountSettingsPage(
                 // 详细信息卡片
                 item {
                     UserDetailsCard(
-                        userData = userData,
+                        userData = currentUserData,
                         themeColors = themeColors,
                         fontStyle = fontStyle
                     )
@@ -131,7 +141,7 @@ fun AccountSettingsPage(
                             isLoggingOut = true
                             
                             // 在后台线程调用登出API
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            coroutineScope.launch(Dispatchers.IO) {
                                 try {
                                     // 调用后端登出API
                                     val sessionId = UserManager.getSessionId()
@@ -165,7 +175,7 @@ fun AccountSettingsPage(
                                     UserManager.logout()
                                     
                                     // 更新UI状态
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    withContext(Dispatchers.Main) {
                                         isLoggedIn = false
                                         userData = null
                                         isLoggingOut = false
@@ -178,7 +188,7 @@ fun AccountSettingsPage(
                                     }
                                 } catch (e: Exception) {
                                     android.util.Log.e("AccountSettingsPage", "登出过程出错: ${e.message}")
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    withContext(Dispatchers.Main) {
                                         isLoggingOut = false
                                     }
                                 }
