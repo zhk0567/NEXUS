@@ -2973,11 +2973,12 @@ def get_active_stories():
             })
         
         # 计算今天应该显示哪个故事（30天循环）
-        # 使用从1970-01-01到今天的总天数模30
+        # 使用2025-01-01作为基准日期，确保2025-01-01对应索引0
         today = datetime.now().date()
-        epoch_day = (today - datetime(1970, 1, 1).date()).days
-        day_index = epoch_day % 30
-        # 确保索引在0-29范围内
+        base_date = datetime(2025, 1, 1).date()
+        days_from_base = (today - base_date).days
+        day_index = days_from_base % 30
+        # 确保索引在0-29范围内（处理负数情况）
         story_index = day_index if day_index >= 0 else day_index + 30
         
         # 根据索引选择对应的故事（假设数据库中的故事按story_id排序，对应2025-01-01到2025-01-30）

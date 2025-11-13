@@ -634,16 +634,17 @@ class StoryRepository {
     /**
      * 根据日期获取故事（30天循环）
      * 使用日期模30来确定应该显示哪个故事
+     * 基准日期为2025-01-01，确保2025-01-01对应索引0
      */
     fun getStoryByDate(date: LocalDate): Story? {
-        // 计算从1970-01-01到指定日期的天数差，然后模30
-        val epochDay = date.toEpochDay()
-        val dayIndex = (epochDay % 30).toInt()
-        // 确保dayIndex在0-29范围内
+        // 使用2025-01-01作为基准日期，计算从基准日期到指定日期的天数差，然后模30
+        val baseDate = LocalDate.of(2025, 1, 1)
+        val daysFromBase = java.time.temporal.ChronoUnit.DAYS.between(baseDate, date)
+        val dayIndex = (daysFromBase % 30).toInt()
+        // 确保dayIndex在0-29范围内（处理负数情况）
         val storyIndex = if (dayIndex < 0) dayIndex + 30 else dayIndex
         
         // 根据索引获取对应的故事（故事索引从0开始，对应2025-01-01到2025-01-30）
-        val baseDate = LocalDate.of(2025, 1, 1)
         val targetDate = baseDate.plusDays(storyIndex.toLong())
         val dateStr = targetDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
         
