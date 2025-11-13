@@ -343,10 +343,23 @@ class DatabaseManager:
         return self.execute_with_retry(_get_details)
     
     def authenticate_user(self, username: str, password: str) -> Optional[Dict]:
-        """用户认证"""
+        """用户认证 - 只允许user01到user10这10个账号登录"""
         try:
+            # 白名单：只允许这10个账号
+            ALLOWED_USERS = {'user01', 'user02', 'user03', 'user04', 'user05', 
+                           'user06', 'user07', 'user08', 'user09', 'user10'}
+            
+            # 检查用户名是否在白名单中
+            if username not in ALLOWED_USERS:
+                logger.warning(f"⚠️ 拒绝登录：用户名 '{username}' 不在允许列表中")
+                return None
+            
             user = self.get_user_by_username(username)
             if user and self.verify_password(password, user['password_hash']):
+                # 检查用户是否激活
+                if not user.get('is_active', False):
+                    logger.warning(f"⚠️ 拒绝登录：用户 '{username}' 已被禁用")
+                    return None
                 # 更新最后登录时间
                 self.update_user_login_time(user['user_id'])
                 return user
