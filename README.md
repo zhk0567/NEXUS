@@ -67,6 +67,29 @@ cd app
 ./gradlew installDebug
 ```
 
+### 测试账号
+
+系统已预置10个测试账号，可直接使用：
+
+| 用户名 | 密码 |
+|--------|------|
+| user01 | 123456 |
+| user02 | 123456 |
+| user03 | 123456 |
+| user04 | 123456 |
+| user05 | 123456 |
+| user06 | 123456 |
+| user07 | 123456 |
+| user08 | 123456 |
+| user09 | 123456 |
+| user10 | 123456 |
+
+**注意**：应用启动时会检查登录状态，未登录状态无法使用软件功能。
+
+**创建测试账号**：
+- 通过API创建：`python create_test_users.py`（需要后端服务运行）
+- 通过SQL脚本：`mysql -u root -p nexus_unified < create_test_users.sql`
+
 ## 项目结构
 
 ```
