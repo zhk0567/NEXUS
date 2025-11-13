@@ -140,6 +140,10 @@ fun StoryScreen() {
             if (todayStory != null) {
                 currentStory = todayStory
                 android.util.Log.d("StoryScreen", "成功加载今天的故事: ${currentStory?.title} (日期: ${currentStory?.date}, ID: ${currentStory?.id})")
+                // 等待数据库加载完成后再检查完成状态
+                delay(300)
+                isStoryCompleted = readingProgressManager.isStoryCompleted(todayStory.id)
+                android.util.Log.d("StoryScreen", "故事加载后检查完成状态: ${todayStory.id}, 已完成: $isStoryCompleted")
             } else {
                 android.util.Log.w("StoryScreen", "没有可用的故事")
                 // 尝试从API获取作为后备
