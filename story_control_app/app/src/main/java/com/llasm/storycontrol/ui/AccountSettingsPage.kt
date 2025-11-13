@@ -47,9 +47,17 @@ fun AccountSettingsPage(
         UserManager.init(context)
     }
     
-    // 获取用户登录状态和信息
-    val isLoggedIn = UserManager.isLoggedIn()
-    val userData = UserManager.getUserData()
+    // 获取用户登录状态和信息（使用状态管理，确保UI能响应变化）
+    var isLoggedIn by remember { mutableStateOf(UserManager.isLoggedIn()) }
+    var userData by remember { mutableStateOf(UserManager.getUserData()) }
+    
+    // 监听登录状态变化
+    LaunchedEffect(Unit) {
+        // 定期检查登录状态（当从其他页面返回时）
+        kotlinx.coroutines.delay(100)
+        isLoggedIn = UserManager.isLoggedIn()
+        userData = UserManager.getUserData()
+    }
     
     // 处理手机返回键
     BackHandler {
@@ -115,18 +123,82 @@ fun AccountSettingsPage(
                 
                 // 退出登录按钮
                 item {
+                    var isLoggingOut by remember { mutableStateOf(false) }
+                    
                     Button(
                         onClick = {
-                            UserManager.logout()
-                            onBackClick()
+                            if (isLoggingOut) return@Button
+                            isLoggingOut = true
+                            
+                            // 在后台线程调用登出API
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                try {
+                                    // 调用后端登出API
+                                    val sessionId = UserManager.getSessionId()
+                                    if (sessionId != null) {
+                                        try {
+                                            val url = java.net.URL(com.llasm.storycontrol.config.ServerConfig.getApiUrl(com.llasm.storycontrol.config.ServerConfig.Endpoints.AUTH_LOGOUT))
+                                            val connection = url.openConnection() as java.net.HttpURLConnection
+                                            
+                                            connection.requestMethod = "POST"
+                                            connection.setRequestProperty("Content-Type", "application/json")
+                                            connection.doOutput = true
+                                            
+                                            val jsonObject = org.json.JSONObject()
+                                            jsonObject.put("session_id", sessionId)
+                                            
+                                            val outputStream = connection.outputStream
+                                            val writer = java.io.OutputStreamWriter(outputStream)
+                                            writer.write(jsonObject.toString())
+                                            writer.flush()
+                                            writer.close()
+                                            
+                                            val responseCode = connection.responseCode
+                                            android.util.Log.d("AccountSettingsPage", "登出API响应码: $responseCode")
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("AccountSettingsPage", "调用登出API失败: ${e.message}")
+                                            // 即使API调用失败，也清除本地数据
+                                        }
+                                    }
+                                    
+                                    // 清除本地用户数据
+                                    UserManager.logout()
+                                    
+                                    // 更新UI状态
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        isLoggedIn = false
+                                        userData = null
+                                        isLoggingOut = false
+                                        
+                                        // 返回上一页
+                                        onBackClick()
+                                        
+                                        // 如果提供了登录对话框回调，显示登录对话框
+                                        onShowLoginDialog?.invoke()
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("AccountSettingsPage", "登出过程出错: ${e.message}")
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        isLoggingOut = false
+                                    }
+                                }
+                            }
                         },
                         modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoggingOut,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error
                         )
                     ) {
+                        if (isLoggingOut) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
                         Text(
-                            text = "退出登录",
+                            text = if (isLoggingOut) "退出中..." else "退出登录",
                             style = fontStyle.titleMedium,
                             color = Color.White,
                             fontWeight = FontWeight.Medium
