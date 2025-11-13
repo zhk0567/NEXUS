@@ -963,16 +963,16 @@ class DatabaseManager:
                     existing = cursor.fetchone()
                     
                     if existing:
-                        # 更新现有记录
+                        # 更新现有记录（包括story_title，确保标题信息是最新的）
                         update_sql = """
                         UPDATE reading_progress 
-                        SET is_completed = TRUE, completion_time = NOW(), 
+                        SET story_title = %s, is_completed = TRUE, completion_time = NOW(), 
                             completion_mode = %s, last_read_time = NOW(),
                             device_info = %s, username = %s
                         WHERE user_id = %s AND story_id = %s
                         """
                         cursor.execute(update_sql, (
-                            completion_mode, device_info, username, user_id, story_id
+                            story_title, completion_mode, device_info, username, user_id, story_id
                         ))
                     else:
                         # 创建新记录
@@ -1022,10 +1022,10 @@ class DatabaseManager:
                     existing = cursor.fetchone()
                     
                     if existing:
-                        # 更新现有记录
+                        # 更新现有记录（包括story_title，确保标题信息是最新的）
                         update_sql = """
                         UPDATE reading_progress 
-                        SET current_position = %s, total_length = %s, reading_progress = %s,
+                        SET story_title = %s, current_position = %s, total_length = %s, reading_progress = %s,
                             is_completed = %s, last_read_time = NOW(),
                             completion_time = CASE WHEN %s = 1 THEN NOW() ELSE completion_time END,
                             completion_mode = CASE WHEN %s = 1 AND %s IS NOT NULL THEN %s ELSE completion_mode END,
@@ -1033,7 +1033,7 @@ class DatabaseManager:
                         WHERE user_id = %s AND story_id = %s
                         """
                         cursor.execute(update_sql, (
-                            current_position, total_length, reading_progress, is_completed,
+                            story_title, current_position, total_length, reading_progress, is_completed,
                             is_completed, is_completed, completion_mode, completion_mode,
                             device_info, username, user_id, story_id
                         ))
