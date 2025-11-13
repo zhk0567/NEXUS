@@ -45,7 +45,7 @@ fun AboutPage(
                 ),
                 title = {
                     Text(
-                        text = "关于NEXUS",
+                        text = "关于AI对话",
                         style = fontStyle.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -101,7 +101,7 @@ fun AboutPage(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Android,
-                                contentDescription = "NEXUS",
+                                contentDescription = "AI对话",
                                 tint = Color.White,
                                 modifier = Modifier.size(40.dp)
                             )
@@ -111,7 +111,7 @@ fun AboutPage(
                         
                         // 应用名称
                         Text(
-                            text = "NEXUS",
+                            text = "AI对话",
                             style = fontStyle.headlineSmall.copy(fontSize = 32.sp),
                             color = themeColors.textPrimary,
                             fontWeight = FontWeight.Bold
@@ -154,7 +154,7 @@ fun AboutPage(
                         Spacer(modifier = Modifier.height(12.dp))
                         
                         Text(
-                            text = "NEXUS是一款智能AI对话应用，集成了先进的语音识别、文本转语音和自然语言处理技术。",
+                            text = "AI对话是一款智能AI对话应用，集成了先进的语音识别、文本转语音和自然语言处理技术。",
                             style = fontStyle.bodyMedium,
                             color = themeColors.textPrimary,
                             lineHeight = fontStyle.bodyMedium.lineHeight * 1.5

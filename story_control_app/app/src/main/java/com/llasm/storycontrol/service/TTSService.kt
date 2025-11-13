@@ -25,6 +25,7 @@ class TTSService(private val context: Context) {
     fun playStoryAudio(
         storyId: String,
         storyText: String,
+        storyTitle: String? = null,
         onPlayStart: () -> Unit = {},
         onPlayComplete: () -> Unit = {},
         onError: (String) -> Unit = {},
@@ -41,8 +42,8 @@ class TTSService(private val context: Context) {
                 stopPlayback()
             }
             
-            // 从assets加载预录制的音频文件
-            val audioData = loadPreRecordedAudio(storyId)
+            // 从assets加载预录制的音频文件（使用标题）
+            val audioData = loadPreRecordedAudio(storyId, storyTitle)
             if (audioData == null) {
                 Log.e(TAG, "预录制音频文件不存在: $storyId")
                 onError("音频文件不存在，请检查预录制状态")
@@ -110,21 +111,26 @@ class TTSService(private val context: Context) {
     
     /**
      * 从assets加载预录制的音频文件
+     * 优先使用标题查找，如果失败则使用日期格式
      */
-    private fun loadPreRecordedAudio(storyId: String): ByteArray? {
+    private fun loadPreRecordedAudio(storyId: String, storyTitle: String? = null): ByteArray? {
         return try {
-            // 将2025年的日期转换为2024年，因为音频文件是2024年格式
-            val audioFileName = if (storyId.startsWith("2025-01-")) {
+            // 优先使用标题作为文件名
+            val audioFileName = if (!storyTitle.isNullOrBlank()) {
+                // 清理标题中的非法字符，与生成音频时的sanitize_filename逻辑一致
+                storyTitle.replace(Regex("[<>:\"/\\\\|?*]"), "_").trim()
+            } else if (storyId.startsWith("2025-01-")) {
+                // 兼容旧格式：将2025年的日期转换为2024年
                 storyId.replace("2025-01-", "2024-01-")
             } else {
                 storyId
             }
             
             val assetPath = "story_audio/$audioFileName.mp3"
-            Log.d(TAG, "尝试加载预录制音频文件: $assetPath (原始ID: $storyId)")
+            Log.d(TAG, "尝试加载预录制音频文件: $assetPath (原始ID: $storyId, 标题: $storyTitle)")
             context.assets.open(assetPath).readBytes()
         } catch (e: Exception) {
-            Log.w(TAG, "加载预录制音频文件失败: $storyId", e)
+            Log.w(TAG, "加载预录制音频文件失败: $storyId (标题: $storyTitle)", e)
             null
         }
     }
@@ -262,10 +268,12 @@ class TTSService(private val context: Context) {
     /**
      * 检查预录制音频文件是否存在
      */
-    fun isAudioFileExists(storyId: String): Boolean {
+    fun isAudioFileExists(storyId: String, storyTitle: String? = null): Boolean {
         return try {
-            // 将2025年的日期转换为2024年，因为音频文件是2024年格式
-            val audioFileName = if (storyId.startsWith("2025-01-")) {
+            // 优先使用标题作为文件名
+            val audioFileName = if (!storyTitle.isNullOrBlank()) {
+                storyTitle.replace(Regex("[<>:\"/\\\\|?*]"), "_").trim()
+            } else if (storyId.startsWith("2025-01-")) {
                 storyId.replace("2025-01-", "2024-01-")
             } else {
                 storyId
@@ -302,23 +310,24 @@ class TTSService(private val context: Context) {
     fun playStoryAudioWithProgress(
         storyId: String,
         storyText: String,
+        storyTitle: String? = null,
         onPlayStart: () -> Unit = {},
         onPlayComplete: () -> Unit = {},
         onError: (String) -> Unit = {},
         onProgressUpdate: (currentPosition: Int, duration: Int) -> Unit = { _, _ -> }
     ) {
-        playStoryAudio(storyId, storyText, onPlayStart, onPlayComplete, onError, onProgressUpdate)
+        playStoryAudio(storyId, storyText, storyTitle, onPlayStart, onPlayComplete, onError, onProgressUpdate)
     }
     
     /**
      * 获取音频时长（不播放，仅获取时长信息）
      */
-    fun getAudioDuration(storyId: String, onDurationReady: (Int) -> Unit) {
+    fun getAudioDuration(storyId: String, storyTitle: String? = null, onDurationReady: (Int) -> Unit) {
         try {
-            Log.d(TAG, "获取音频时长: $storyId")
+            Log.d(TAG, "获取音频时长: $storyId (标题: $storyTitle)")
             
             // 从assets加载预录制的音频文件
-            val audioData = loadPreRecordedAudio(storyId)
+            val audioData = loadPreRecordedAudio(storyId, storyTitle)
             if (audioData == null) {
                 Log.e(TAG, "预录制音频文件不存在: $storyId")
                 onDurationReady(0)

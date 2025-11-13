@@ -10,7 +10,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
-from database_config import DATABASE_CONFIG, CREATE_TABLES_SQL, INIT_DATABASE_SQL, DEFAULT_ADMIN, TEST_USERS
+from database_config import DATABASE_CONFIG, CREATE_TABLES_SQL, INIT_DATABASE_SQL, DEFAULT_ADMIN
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +112,6 @@ class DatabaseManager:
                 # 创建默认管理员用户
                 self.create_default_admin()
                 
-                # 创建测试用户
-                self.create_test_users()
-                
         except Exception as e:
             logger.error(f"❌ 数据库初始化失败: {e}")
             raise
@@ -138,29 +135,6 @@ class DatabaseManager:
             
         except Exception as e:
             logger.error(f"❌ 创建默认管理员用户失败: {e}")
-    
-    def create_test_users(self):
-        """创建测试用户"""
-        try:
-            for user_data in TEST_USERS:
-                # 检查用户是否已存在
-                if self.get_user_by_username(user_data['username']):
-                    # 测试用户已存在，不输出日志
-                    continue
-                
-                # 创建用户
-                self.create_user(
-                    user_id=user_data['user_id'],
-                    username=user_data['username'],
-                    password=user_data['password'],
-                    is_active=user_data['is_active']
-                )
-                # 测试用户创建成功，不输出日志
-            
-            # 所有测试用户创建完成，不输出日志
-            
-        except Exception as e:
-            logger.error(f"❌ 创建测试用户失败: {e}")
     
     def hash_password(self, password: str) -> str:
         """密码哈希"""

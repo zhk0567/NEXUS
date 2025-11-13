@@ -377,7 +377,7 @@ PUBLIC_IP = "115.190.227.112"  # 公网IP（供客户端外网访问）
 PRIVATE_IP = "172.31.0.2"  # 私网IP（服务器本地访问）
 
 # DeepSeek API配置
-DEEPSEEK_API_KEY = "sk-66a8c43ecb14406ea020b5a9dd47090d"  # 请替换为您的API密钥
+DEEPSEEK_API_KEY = "sk-beeadaf084744dcab32aeeb1534789f4"  # 请替换为您的API密钥
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 # 火山引擎（豆包）API配置
@@ -1573,41 +1573,6 @@ def chat():
         logger.error(f"❌ 聊天API错误: {e}")
         return jsonify({'success': False, 'error': str(e), 'message': 'AI服务暂时不可用，请稍后重试。'}), 500
 
-
-@app.route('/test_tts', methods=['GET'])
-def test_tts():
-    """测试TTS功能"""
-    try:
-        test_text = "这是一个TTS测试"
-        logger.info(f"🧪 开始TTS测试: {test_text}")
-        
-        # 生成音频
-        audio_data = generate_tts_audio(test_text)
-        
-        if audio_data and len(audio_data) > 0:
-            logger.info(f"✅ TTS测试成功，音频大小: {len(audio_data)} 字节")
-            return jsonify({
-                'status': 'success', 
-                'message': 'TTS测试成功',
-                'audio_size': len(audio_data),
-                'service': 'edge-tts',
-                'stability': 'enhanced'
-            })
-        else:
-            logger.error("❌ TTS测试失败：音频数据为空")
-            return jsonify({
-                'status': 'error', 
-                'message': 'TTS测试失败：音频数据为空'
-            }), 500
-            
-    except Exception as e:
-        logger.error(f"❌ TTS测试异常: {e}")
-        import traceback
-        logger.error(f"❌ TTS测试错误详情: {traceback.format_exc()}")
-        return jsonify({
-            'status': 'error', 
-            'message': f'TTS测试异常: {str(e)}'
-        }), 500
 
 @app.route('/api/tts/health', methods=['GET'])
 def tts_health_check():
@@ -2993,27 +2958,59 @@ def deactivate_story(story_id):
 
 @app.route('/api/stories/active', methods=['GET'])
 def get_active_stories():
-    """获取活跃故事列表（用户端）"""
+    """获取活跃故事列表（用户端）- 30天循环，返回当天对应的故事"""
     try:
-        stories = db_manager.get_all_stories(include_inactive=False)
-        # 只返回用户需要的信息
-        user_stories = []
-        for story in stories:
-            user_stories.append({
-                'id': story['story_id'],
-                'title': story['title'],
-                'content': story['content'],
-                'audio_file_path': story['audio_file_path'],
-                'audio_duration_seconds': story['audio_duration_seconds']
+        from datetime import datetime, timedelta
+        
+        # 获取所有活跃故事
+        all_stories = db_manager.get_all_stories(include_inactive=False)
+        
+        if not all_stories:
+            return jsonify({
+                'success': True,
+                'stories': [],
+                'total': 0
             })
+        
+        # 计算今天应该显示哪个故事（30天循环）
+        # 使用从1970-01-01到今天的总天数模30
+        today = datetime.now().date()
+        epoch_day = (today - datetime(1970, 1, 1).date()).days
+        day_index = epoch_day % 30
+        # 确保索引在0-29范围内
+        story_index = day_index if day_index >= 0 else day_index + 30
+        
+        # 根据索引选择对应的故事（假设数据库中的故事按story_id排序，对应2025-01-01到2025-01-30）
+        # 如果story_id是日期格式，按日期排序；否则按创建时间排序
+        sorted_stories = sorted(all_stories, key=lambda x: x.get('story_id', ''))
+        
+        # 确保有30个故事，如果不足30个，循环使用
+        if len(sorted_stories) >= 30:
+            today_story = sorted_stories[story_index]
+        else:
+            # 如果故事数量不足30个，使用模运算循环
+            today_story = sorted_stories[story_index % len(sorted_stories)]
+        
+        # 只返回今天的故事
+        user_story = {
+            'id': today_story['story_id'],
+            'title': today_story['title'],
+            'content': today_story['content'],
+            'audio_file_path': today_story.get('audio_file_path'),
+            'audio_duration_seconds': today_story.get('audio_duration_seconds', 0)
+        }
+        
+        logger.info(f"📖 返回今天的故事（30天循环，索引{story_index}）: {user_story['title']}")
         
         return jsonify({
             'success': True,
-            'stories': user_stories,
-            'total': len(user_stories)
+            'stories': [user_story],  # 只返回今天的故事
+            'total': 1
         })
     except Exception as e:
         logger.error(f"❌ 获取活跃故事列表失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

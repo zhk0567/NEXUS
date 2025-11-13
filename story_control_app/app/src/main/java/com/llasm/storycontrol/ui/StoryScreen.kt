@@ -122,59 +122,80 @@ fun StoryScreen() {
     val themeColors = ThemeManager.getThemeColors(isDarkMode)
     val fontStyle = ThemeManager.getFontStyle()
     
-    // 加载故事
+    // 创建StoryRepository实例（复用）
+    val storyRepository = remember { StoryRepository() }
+    
+    // 加载故事（使用30天循环）
     LaunchedEffect(Unit) {
         try {
-            val result = StoryApiService.getActiveStories()
-            when (result) {
-                is com.llasm.storycontrol.network.ApiResult.Success -> {
-                    val stories = result.data.stories
-                    if (stories.isNotEmpty()) {
-                        // 将网络故事转换为本地故事格式，默认选择第一个故事
-                        val networkStory = stories[0]
-                        currentStory = com.llasm.storycontrol.data.Story(
-                            id = networkStory.id,
-                            title = networkStory.title,
-                            content = networkStory.content,
-                            date = java.time.LocalDate.now(),
-                            category = "温馨故事",
-                            isCompleted = false,
-                            completedAt = null,
-                            readingMode = com.llasm.storycontrol.data.ReadingMode.TEXT
-                        )
-                        android.util.Log.d("StoryScreen", "成功加载故事: ${currentStory?.title}")
-                    } else {
-                        android.util.Log.w("StoryScreen", "没有可用的故事")
+            // 使用StoryRepository获取今天的故事（30天循环）
+            val todayStory = storyRepository.getTodayStory()
+            
+            if (todayStory != null) {
+                currentStory = todayStory
+                android.util.Log.d("StoryScreen", "成功加载今天的故事: ${currentStory?.title} (日期: ${currentStory?.date}, ID: ${currentStory?.id})")
+            } else {
+                android.util.Log.w("StoryScreen", "没有可用的故事")
+                // 尝试从API获取作为后备
+                try {
+                    val result = StoryApiService.getActiveStories()
+                    when (result) {
+                        is com.llasm.storycontrol.network.ApiResult.Success -> {
+                            val stories = result.data.stories
+                            if (stories.isNotEmpty()) {
+                                val networkStory = stories[0]
+                                currentStory = com.llasm.storycontrol.data.Story(
+                                    id = networkStory.id,
+                                    title = networkStory.title,
+                                    content = networkStory.content,
+                                    date = java.time.LocalDate.now(),
+                                    category = "温馨故事",
+                                    isCompleted = false,
+                                    completedAt = null,
+                                    readingMode = com.llasm.storycontrol.data.ReadingMode.TEXT
+                                )
+                            }
+                        }
+                        else -> {
+                            android.util.Log.e("StoryScreen", "API加载故事失败")
+                        }
                     }
-                }
-                is com.llasm.storycontrol.network.ApiResult.Error -> {
-                    android.util.Log.e("StoryScreen", "加载故事失败: ${result.message}")
-                    // 使用默认故事作为后备
-                    currentStory = com.llasm.storycontrol.data.Story(
-                        id = "2024-01-01",
-                        title = "春天的故事",
-                        content = "春天来了，大地复苏，万物生长。\n\n在这个充满生机的季节里，小鸟在枝头歌唱，花朵在微风中摇摆。阳光温暖地洒在大地上，给人们带来了希望和快乐。\n\n孩子们在草地上奔跑嬉戏，大人们在花园里种植花草。每个人都感受到了春天的美好，心中充满了对未来的憧憬。\n\n春天不仅是一个季节，更是一种心情，一种对生活的热爱和对美好的追求。让我们珍惜这个美好的季节，用心感受生活中的每一个美好瞬间。",
-                        date = java.time.LocalDate.now(),
-                        category = "温馨故事",
-                        isCompleted = false,
-                        completedAt = null,
-                        readingMode = com.llasm.storycontrol.data.ReadingMode.TEXT
-                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("StoryScreen", "API加载故事异常: ${e.message}")
                 }
             }
         } catch (e: Exception) {
             android.util.Log.e("StoryScreen", "加载故事异常: ${e.message}")
-            // 使用默认故事作为后备
-            currentStory = com.llasm.storycontrol.data.Story(
-                id = "2024-01-01",
-                title = "春天的故事",
-                content = "春天来了，大地复苏，万物生长。\n\n在这个充满生机的季节里，小鸟在枝头歌唱，花朵在微风中摇摆。阳光温暖地洒在大地上，给人们带来了希望和快乐。\n\n孩子们在草地上奔跑嬉戏，大人们在花园里种植花草。每个人都感受到了春天的美好，心中充满了对未来的憧憬。\n\n春天不仅是一个季节，更是一种心情，一种对生活的热爱和对美好的追求。让我们珍惜这个美好的季节，用心感受生活中的每一个美好瞬间。",
-                date = java.time.LocalDate.now(),
-                category = "温馨故事",
-                isCompleted = false,
-                completedAt = null,
-                readingMode = com.llasm.storycontrol.data.ReadingMode.TEXT
-            )
+        }
+    }
+    
+    // 监听日期变化，每天自动更新故事（30天循环）
+    val today = remember { mutableStateOf(java.time.LocalDate.now()) }
+    LaunchedEffect(Unit) {
+        // 每分钟检查一次日期是否变化
+        while (true) {
+            kotlinx.coroutines.delay(60000) // 60秒检查一次
+            val currentDate = java.time.LocalDate.now()
+            if (currentDate != today.value) {
+                today.value = currentDate
+                android.util.Log.d("StoryScreen", "检测到日期变化: ${today.value}")
+            }
+        }
+    }
+    
+    // 监听today变化，重新加载故事
+    LaunchedEffect(today.value) {
+        try {
+            val todayStory = storyRepository.getTodayStory()
+            if (todayStory != null) {
+                // 只有当故事ID不同时才更新，避免不必要的刷新
+                if (currentStory?.id != todayStory.id) {
+                    currentStory = todayStory
+                    android.util.Log.d("StoryScreen", "日期变化，已更新故事: ${currentStory?.title} (新ID: ${currentStory?.id})")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("StoryScreen", "加载故事失败: ${e.message}")
         }
     }
     
@@ -490,17 +511,21 @@ fun StoryScreen() {
                         try {
                             val mp = MediaPlayer()
 
-                            // 尝试使用assets中的音频文件
+                            // 尝试使用assets中的音频文件（优先使用标题）
                             try {
-                                // 将2025年的日期转换为2024年，因为音频文件是2024年格式
                                 val storyId = currentStory?.id ?: "2024-01-01"
-                                val audioFileName = if (storyId.startsWith("2025-01-")) {
+                                val storyTitle = currentStory?.title
+                                // 优先使用标题作为文件名，如果标题为空则使用日期格式
+                                val audioFileName = if (!storyTitle.isNullOrBlank()) {
+                                    // 清理标题中的非法字符
+                                    storyTitle.replace(Regex("[<>:\"/\\\\|?*]"), "_").trim()
+                                } else if (storyId.startsWith("2025-01-")) {
                                     storyId.replace("2025-01-", "2024-01-")
                                 } else {
                                     storyId
                                 }
                                 val audioFilePath = "story_audio/$audioFileName.mp3"
-                                android.util.Log.d("StoryScreen", "尝试加载音频文件: $audioFilePath (原始ID: $storyId)")
+                                android.util.Log.d("StoryScreen", "尝试加载音频文件: $audioFilePath (原始ID: $storyId, 标题: $storyTitle)")
                                 val assetFileDescriptor = context.assets.openFd(audioFilePath)
                                 mp.setDataSource(assetFileDescriptor.fileDescriptor, assetFileDescriptor.startOffset, assetFileDescriptor.length)
                                 assetFileDescriptor.close()

@@ -46,14 +46,17 @@ ehthumbs.db
 Thumbs.db
 
 # Android
-android/.gradle/
-android/app/build/
-android/build/
-android/.idea/
-android/local.properties
-android/*.iml
-android/app/*.iml
-android/gradle.properties
+.gradle/
+app/build/
+app/.gradle/
+story_control_app/app/build/
+story_control_app/.gradle/
+build/
+story_control_app/build/
+.idea/
+*.iml
+local.properties
+gradle.properties
 
 # Logs
 *.log

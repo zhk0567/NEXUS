@@ -191,7 +191,7 @@ class AutoSyncService : Service() {
         )
         
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("NEXUS 自动同步")
+            .setContentTitle("AI对话 自动同步")
             .setContentText("正在后台同步资源...")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
@@ -207,7 +207,7 @@ class AutoSyncService : Service() {
         val notification = createNotification().apply {
             // 更新通知内容
             val builder = NotificationCompat.Builder(this@AutoSyncService, CHANNEL_ID)
-                .setContentTitle("NEXUS 自动同步")
+                .setContentTitle("AI对话 自动同步")
                 .setContentText(text)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setOngoing(true)

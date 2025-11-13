@@ -49,7 +49,7 @@ fun AboutPage(
                 ),
                 title = {
                     Text(
-                        text = "故事",
+                        text = "每日故事",
                         style = fontStyle.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -105,7 +105,7 @@ fun AboutPage(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.MenuBook,
-                                contentDescription = "故事控制",
+                                contentDescription = "每日故事",
                                 tint = Color.White,
                                 modifier = Modifier.size(40.dp)
                             )
@@ -115,7 +115,7 @@ fun AboutPage(
                         
                         // 应用名称
                         Text(
-                            text = "故事",
+                            text = "每日故事",
                             style = fontStyle.headlineSmall.copy(fontSize = 32.sp),
                             color = themeColors.textPrimary,
                             fontWeight = FontWeight.Bold
@@ -159,7 +159,7 @@ fun AboutPage(
                         Spacer(modifier = Modifier.height(12.dp))
                         
                         Text(
-                            text = "故事控制是一款专为儿童设计的智能故事阅读应用，提供丰富的故事内容和个性化的阅读体验。",
+                            text = "每日故事是一款专为儿童设计的智能故事阅读应用，提供丰富的故事内容和个性化的阅读体验。",
                             style = fontStyle.bodyMedium,
                             color = themeColors.textPrimary,
                             lineHeight = 24.sp

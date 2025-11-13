@@ -104,7 +104,7 @@ fun AboutSettingsScreen(
                     Spacer(modifier = Modifier.height(20.dp))
                     
                     Text(
-                        text = "故事阅读器",
+                        text = "每日故事",
                         style = fontStyle.titleMedium,
                         color = themeColors.textPrimary,
                         fontWeight = FontWeight.Bold,

@@ -194,24 +194,3 @@ DEFAULT_ADMIN = {
     'is_active': True
 }
 
-# 测试用户
-TEST_USERS = [
-    {
-        'user_id': 'user_001',
-        'username': 'testuser1',
-        'password': 'password123',
-        'is_active': True
-    },
-    {
-        'user_id': 'user_002',
-        'username': 'testuser2',
-        'password': 'password456',
-        'is_active': True
-    },
-    {
-        'user_id': 'user_003',
-        'username': 'testuser3',
-        'password': 'password789',
-        'is_active': True
-    }
-]
