@@ -776,11 +776,13 @@ class ReadingProgressManager private constructor(context: Context) {
             )
         }
         
-        // 同步完成状态到数据库
+        // 同步完成状态到数据库（等待完成）
         syncCompletionToDatabase(storyId, storyTitle, "text")
         
         // 重新从数据库加载数据以确保统计信息正确
         loadReadingProgressFromDatabase()
+        
+        android.util.Log.d("ReadingProgressManager", "完成阅读处理完成: $storyId, 本地缓存完成状态: ${localProgressCache[storyId]?.isCompleted}")
         
         android.util.Log.d("ReadingProgressManager", "阅读完成状态已更新: $storyId")
     }
@@ -930,6 +932,15 @@ class ReadingProgressManager private constructor(context: Context) {
             
             if (result.isSuccess) {
                 android.util.Log.d("ReadingProgressManager", "完成阅读同步成功: $storyId")
+                // 同步成功后，确保本地缓存也更新
+                localProgressCache[storyId]?.let { progress ->
+                    localProgressCache[storyId] = progress.copy(
+                        isCompleted = true,
+                        readingProgress = 1.0f,
+                        completionTime = System.currentTimeMillis()
+                    )
+                    _readingProgress.value = localProgressCache.values.toList()
+                }
             } else {
                 val error = result.exceptionOrNull()?.message
                 android.util.Log.e("ReadingProgressManager", "完成阅读同步失败: $storyId, 错误: $error")

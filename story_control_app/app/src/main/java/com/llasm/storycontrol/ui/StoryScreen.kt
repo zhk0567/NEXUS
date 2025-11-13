@@ -86,6 +86,12 @@ fun StoryScreen() {
     // 初始化阅读进度管理器
     LaunchedEffect(Unit) {
         readingProgressManager.initialize()
+        // 等待数据库加载完成后再检查完成状态
+        delay(500)
+        currentStory?.let { story ->
+            isStoryCompleted = readingProgressManager.isStoryCompleted(story.id)
+            android.util.Log.d("StoryScreen", "初始化后检查完成状态: ${story.id}, 已完成: $isStoryCompleted")
+        }
     }
     
     // 应用启动时检查登录状态，如果未登录则显示登录对话框
@@ -202,19 +208,25 @@ fun StoryScreen() {
     // 监听故事变化
     LaunchedEffect(currentStory?.id) {
         currentStory?.let { story ->
+            // 延迟检查完成状态，确保数据库已加载
+            delay(200)
             isStoryCompleted = readingProgressManager.isStoryCompleted(story.id)
-            // 重置最大进度
-            maxProgress = 0f
-            // 重置计时相关状态
-            hasStartedTextReading = false
-            readingStartTime = 0L
-            pausedTime = 0L
-            totalPausedDuration = 0L
-            currentDisplaySeconds = 0
-            // 重置音频播放状态
-            isAudioCompleted = false
-            // 重置完成按钮状态
-            canShowCompleteButton = false
+            android.util.Log.d("StoryScreen", "故事变化检查完成状态: ${story.id}, 已完成: $isStoryCompleted")
+            // 如果已完成，不重置状态
+            if (!isStoryCompleted) {
+                // 重置最大进度
+                maxProgress = 0f
+                // 重置计时相关状态
+                hasStartedTextReading = false
+                readingStartTime = 0L
+                pausedTime = 0L
+                totalPausedDuration = 0L
+                currentDisplaySeconds = 0
+                // 重置音频播放状态
+                isAudioCompleted = false
+                // 重置完成按钮状态
+                canShowCompleteButton = false
+            }
         }
     }
     
@@ -223,6 +235,12 @@ fun StoryScreen() {
         readingProgressManager.readingProgress.collect { progressList ->
             currentStory?.let { story ->
                 progressList.find { it.storyId == story.id }?.let { progress ->
+                    // 更新完成状态
+                    val wasCompleted = isStoryCompleted
+                    isStoryCompleted = progress.isCompleted
+                    if (isStoryCompleted != wasCompleted) {
+                        android.util.Log.d("StoryScreen", "阅读进度变化，更新完成状态: ${story.id}, 已完成: $isStoryCompleted")
+                    }
                     uiUpdateTrigger++
                 }
             }
