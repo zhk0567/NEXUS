@@ -97,6 +97,9 @@ cd app
 **禁用其他账号**（如果数据库中有其他账号）：
 - 运行SQL脚本：`mysql -u root -p nexus_unified < disable_other_users.sql`
 
+**更新数据库表结构**（添加单设备登录检测支持）：
+- 运行SQL脚本：`mysql -u root -p nexus_unified < update_sessions_table.sql`
+
 ## 项目结构
 
 ```
