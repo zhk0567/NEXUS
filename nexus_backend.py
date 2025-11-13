@@ -1695,6 +1695,19 @@ def user_login():
         ip_address = request.remote_addr
         user_agent = request.headers.get('User-Agent', '')
         
+        # 从User-Agent或device_info判断app类型
+        app_type = 'unknown'
+        if 'story' in user_agent.lower() or 'story' in device_info.lower():
+            app_type = 'story_control'
+        elif 'nexus' in user_agent.lower() or 'ai' in user_agent.lower() or 'chat' in user_agent.lower():
+            app_type = 'ai_chat'
+        elif device_info:
+            # 如果device_info明确指定了app类型
+            if 'story' in device_info.lower():
+                app_type = 'story_control'
+            elif 'ai' in device_info.lower() or 'chat' in device_info.lower():
+                app_type = 'ai_chat'
+        
         # 用户认证（只允许user01-user10这10个账号）
         user = db_manager.authenticate_user(username, password)
         if not user:
@@ -1706,8 +1719,16 @@ def user_login():
                 return jsonify({'error': '该账号不允许登录，请联系管理员'}), 403
             return jsonify({'error': '用户名或密码错误'}), 401
         
-        # 创建会话
-        session_id = db_manager.create_session(user['user_id'])
+        # 检查同一账号同一app是否已在其他设备登录
+        active_sessions = db_manager.get_active_sessions(user['user_id'], app_type)
+        if active_sessions:
+            # 结束旧会话（踢掉其他设备的登录）
+            ended_count = db_manager.end_user_sessions(user['user_id'], app_type)
+            logger.info(f"⚠️ 用户 {username} 在 {app_type} app 已有 {len(active_sessions)} 个活跃会话，已结束旧会话")
+            db_manager.log_system_event('INFO', 'auth', f'用户 {username} 在新设备登录，已结束 {ended_count} 个旧会话')
+        
+        # 创建新会话
+        session_id = db_manager.create_session(user['user_id'], app_type, device_info, ip_address)
         if not session_id:
             return jsonify({'error': '创建会话失败'}), 500
         

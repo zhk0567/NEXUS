@@ -49,7 +49,7 @@ fun loginUser(username: String, password: String, callback: (Boolean, String?) -
             val jsonObject = JSONObject()
             jsonObject.put("username", username)
             jsonObject.put("password", password)
-            jsonObject.put("device_info", "Android")
+            jsonObject.put("device_info", "Android-StoryControl")
             
             val outputStream = connection.outputStream
             val writer = OutputStreamWriter(outputStream)

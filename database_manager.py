@@ -380,22 +380,63 @@ class DatabaseManager:
     
     # 移除update_user_logout_time函数 - 不再需要登出时间字段
     
-    def create_session(self, user_id: str) -> str:
+    def create_session(self, user_id: str, app_type: str = 'unknown', device_info: str = None, ip_address: str = None) -> str:
         """创建用户会话"""
         try:
             session_id = str(uuid.uuid4())
             with self.connection.cursor() as cursor:
                 sql = """
-                INSERT INTO user_sessions (user_id, session_id)
-                VALUES (%s, %s)
+                INSERT INTO user_sessions (user_id, session_id, app_type, device_info, ip_address)
+                VALUES (%s, %s, %s, %s, %s)
                 """
-                cursor.execute(sql, (user_id, session_id))
+                cursor.execute(sql, (user_id, session_id, app_type, device_info, ip_address))
                 self.connection.commit()
                 # 会话创建成功，不输出日志
                 return session_id
         except Exception as e:
             logger.error(f"❌ 创建会话失败: {e}")
             return None
+    
+    def end_user_sessions(self, user_id: str, app_type: str = None) -> int:
+        """结束用户的所有会话（或指定app类型的会话）"""
+        try:
+            with self.connection.cursor() as cursor:
+                if app_type:
+                    sql = "DELETE FROM user_sessions WHERE user_id = %s AND app_type = %s"
+                    cursor.execute(sql, (user_id, app_type))
+                else:
+                    sql = "DELETE FROM user_sessions WHERE user_id = %s"
+                    cursor.execute(sql, (user_id,))
+                self.connection.commit()
+                return cursor.rowcount
+        except Exception as e:
+            logger.error(f"❌ 结束会话失败: {e}")
+            return 0
+    
+    def get_active_sessions(self, user_id: str, app_type: str = None) -> List[Dict]:
+        """获取用户的活跃会话"""
+        try:
+            with self.connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                if app_type:
+                    sql = """
+                    SELECT session_id, app_type, device_info, ip_address, login_time
+                    FROM user_sessions
+                    WHERE user_id = %s AND app_type = %s
+                    ORDER BY login_time DESC
+                    """
+                    cursor.execute(sql, (user_id, app_type))
+                else:
+                    sql = """
+                    SELECT session_id, app_type, device_info, ip_address, login_time
+                    FROM user_sessions
+                    WHERE user_id = %s
+                    ORDER BY login_time DESC
+                    """
+                    cursor.execute(sql, (user_id,))
+                return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"❌ 获取活跃会话失败: {e}")
+            return []
     
     def get_or_create_active_session(self, user_id: str, reuse_recent: bool = False, timeout_minutes: int = 30) -> str:
         """

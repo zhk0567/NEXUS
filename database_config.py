@@ -61,10 +61,14 @@ CREATE_TABLES_SQL = {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id VARCHAR(255) NOT NULL COMMENT '用户ID',
         session_id VARCHAR(255) UNIQUE NOT NULL COMMENT '会话ID',
+        app_type VARCHAR(50) NOT NULL DEFAULT 'unknown' COMMENT '应用类型：ai_chat/story_control',
+        device_info VARCHAR(500) NULL COMMENT '设备信息',
+        ip_address VARCHAR(50) NULL COMMENT 'IP地址',
         login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '登录时间',
         INDEX idx_user_id (user_id),
         INDEX idx_session_id (session_id),
         INDEX idx_login_time (login_time),
+        INDEX idx_user_app (user_id, app_type),
         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户会话表'
     """,
