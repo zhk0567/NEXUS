@@ -257,15 +257,37 @@ class DatabaseManager:
     
     
     def get_user_by_username(self, username: str) -> Optional[Dict]:
-        """根据用户名获取用户信息"""
-        try:
-            with self.connection.cursor(pymysql.cursors.DictCursor) as cursor:
-                sql = "SELECT * FROM users WHERE username = %s"
-                cursor.execute(sql, (username,))
-                return cursor.fetchone()
-        except Exception as e:
-            logger.error(f"❌ 获取用户信息失败: {e}")
-            return None
+        """根据用户名获取用户信息（使用独立连接）"""
+        max_retries = 3
+        connection = None
+        for attempt in range(max_retries):
+            try:
+                # 使用独立连接避免并发冲突
+                connection = self._get_fresh_connection()
+                
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                    sql = "SELECT * FROM users WHERE username = %s"
+                    cursor.execute(sql, (username,))
+                    result = cursor.fetchone()
+                    
+                    if connection:
+                        connection.close()
+                    return result
+                    
+            except Exception as e:
+                # 只记录有意义的错误
+                if str(e) and str(e) != "(0, '')":
+                    logger.error(f"❌ 获取用户信息失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if connection:
+                    try:
+                        connection.close()
+                    except:
+                        pass
+                if attempt < max_retries - 1:
+                    time.sleep(self.retry_delay * (attempt + 1))
+                else:
+                    return None
+        return None
     
     def get_all_users(self, limit: int = 1000) -> List[Dict]:
         """获取所有用户"""
@@ -393,14 +415,26 @@ class DatabaseManager:
             return None
     
     def update_user_login_time(self, user_id: str):
-        """更新用户登录时间"""
+        """更新用户登录时间（使用独立连接）"""
+        connection = None
         try:
-            with self.connection.cursor() as cursor:
+            # 使用独立连接避免并发冲突
+            connection = self._get_fresh_connection()
+            
+            with connection.cursor() as cursor:
                 sql = "UPDATE users SET last_login_at = NOW() WHERE user_id = %s"
                 cursor.execute(sql, (user_id,))
-                self.connection.commit()
+                connection.commit()
+                
+            if connection:
+                connection.close()
         except Exception as e:
-            logger.error(f"❌ 更新登录时间失败: {e}")
+            # 静默失败，不影响登录流程
+            if connection:
+                try:
+                    connection.close()
+                except:
+                    pass
     
     # 移除update_user_logout_time函数 - 不再需要登出时间字段
     
@@ -822,18 +856,33 @@ class DatabaseManager:
             return {}
     
     def log_system_event(self, log_level: str, service_name: str, message: str):
-        """记录系统日志"""
+        """记录系统日志（使用独立连接，静默失败）"""
+        connection = None
         try:
-            with self.connection.cursor() as cursor:
+            # 使用独立连接避免并发冲突
+            connection = self._get_fresh_connection()
+            
+            with connection.cursor() as cursor:
                 sql = """
                 INSERT INTO system_logs 
                 (log_level, service_name, message)
                 VALUES (%s, %s, %s)
                 """
                 cursor.execute(sql, (log_level, service_name, message))
-                self.connection.commit()
+                connection.commit()
+                
+            if connection:
+                connection.close()
         except Exception as e:
-            logger.error(f"❌ 记录系统日志失败: {e}")
+            # 静默失败，不记录日志（避免日志循环）
+            # 只记录有意义的错误
+            if str(e) and str(e) != "(0, '')" and "MySQL" not in str(e):
+                logger.error(f"❌ 记录系统日志失败: {e}")
+            if connection:
+                try:
+                    connection.close()
+                except:
+                    pass
     
     def get_active_users(self, hours: int = 24) -> List[Dict]:
         """获取活跃用户"""
@@ -1608,17 +1657,26 @@ class DatabaseManager:
                     WHERE user_id = %s
                     """
                     cursor.execute(sql, (user_id,))
-                    return cursor.fetchone()
+                    result = cursor.fetchone()
+                    
+                    if connection:
+                        connection.close()
+                    return result
 
             except Exception as e:
-                logger.error(f"❌ 获取用户信息失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                # 只记录有意义的错误
+                if str(e) and str(e) != "(0, '')":
+                    logger.error(f"❌ 获取用户信息失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
                     time.sleep(1)
                 else:
                     return None
             finally:
                 if connection:
-                    connection.close()
+                    try:
+                        connection.close()
+                    except:
+                        pass
         return None
 
     def get_user_reading_progress_details(self, user_id):

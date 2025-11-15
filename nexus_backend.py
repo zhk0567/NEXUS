@@ -35,7 +35,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 禁用Flask和Werkzeug的请求日志
-logging.getLogger('werkzeug').setLevel(logging.ERROR)
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.setLevel(logging.ERROR)
+
+# 创建自定义过滤器，过滤HTTP 400错误（通常是外部扫描）
+class HTTP400Filter(logging.Filter):
+    def filter(self, record):
+        # 过滤掉HTTP 400错误（外部扫描/恶意请求）
+        message = str(record.getMessage())
+        if 'code 400' in message or 'Bad request' in message or 'Bad HTTP' in message:
+            return False
+        return True
+
+werkzeug_logger.addFilter(HTTP400Filter())
 logging.getLogger('flask').setLevel(logging.ERROR)
 
 # 为关键启动信息创建单独的logger
