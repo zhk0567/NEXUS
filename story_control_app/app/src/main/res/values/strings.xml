@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">每日故事</string>
+    <string name="story_title">每日故事</string>
+    <string name="select_date">选择日期</string>
+    <string name="settings">设置</string>
+    <string name="theme_mode">主题模式</string>
+    <string name="font_size">字体大小</string>
+    <string name="light_mode">白天</string>
+    <string name="dark_mode">夜间</string>
+    <string name="small_font">小</string>
+    <string name="medium_font">中</string>
+    <string name="large_font">大</string>
+    <string name="save">保存</string>
+    <string name="cancel">取消</string>
+    <string name="no_story">暂无故事</string>
+    <string name="no_story_message">该日期还没有故事内容</string>
+    <string name="select_other_date">请选择其他日期查看故事</string>
+    <string name="daily_insight">今日感悟</string>
+    <string name="insight_message">每一个故事都蕴含着生活的智慧，愿您从中获得启发和温暖。</string>
+</resources>
