@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.llasm.storycontrol.data.*
@@ -57,9 +58,9 @@ fun parseBoldText(text: String): AnnotatedString {
             
             // 添加加粗文本
             val boldText = matchResult.groupValues[1]
-            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                append(boldText)
-            }
+            pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+            append(boldText)
+            pop()
             
             lastIndex = matchResult.range.last + 1
         }
