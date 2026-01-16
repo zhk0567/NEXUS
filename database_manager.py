@@ -1957,8 +1957,181 @@ class DatabaseManager:
 
     # ==================== 故事管理方法 ====================
     
-    # stories 表相关方法已删除（stories表已删除）
-    # create_story, update_story, get_story, get_all_stories, delete_story, activate_story
+    def get_all_stories(self, include_inactive: bool = False) -> List[Dict]:
+        """
+        获取所有故事列表
+        注意：stories表已删除，故事数据现在从Excel文件读取（只返回30个故事）
+        """
+        import os
+        from openpyxl import load_workbook
+        from openpyxl.cell.rich_text import TextBlock, CellRichText
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # 项目根目录
+                project_root = os.path.dirname(__file__)
+                
+                # Excel文件路径
+                excel_file = os.path.join(project_root, 'Story_v2.xlsx')
+                
+                # 故事音频文件目录
+                story_audio_dir = os.path.join(
+                    project_root,
+                    'story_control_app', 'app', 'src', 'main', 'assets', 'story_audio'
+                )
+                
+                stories = []
+                
+                # 检查Excel文件是否存在
+                if not os.path.exists(excel_file):
+                    logger.warning(f"⚠️ Excel文件不存在: {excel_file}")
+                    return []
+                
+                # 读取Excel文件
+                wb = load_workbook(excel_file, rich_text=True)
+                ws = wb.active
+                
+                # 获取列名
+                headers = [cell.value for cell in ws[1]]
+                
+                # 查找标题和内容列
+                title_col = None
+                content_col = None
+                for h in headers:
+                    if h and ("题目" in str(h) or "标题" in str(h) or "title" in str(h).lower()):
+                        title_col = h
+                    if h and ("内容" in str(h) or "content" in str(h).lower()):
+                        content_col = h
+                
+                if not title_col:
+                    logger.error("❌ 无法找到标题列")
+                    return []
+                
+                # 读取所有故事数据（只读取30个）
+                excel_stories = []
+                for row_idx in range(2, min(ws.max_row + 1, 32)):  # 最多31行（1行标题+30行数据）
+                    story = {}
+                    for col_idx, header in enumerate(headers, 1):
+                        cell = ws.cell(row=row_idx, column=col_idx)
+                        value = cell.value
+                        
+                        # 处理内容列（富文本）
+                        if header == content_col and value:
+                            content_parts = []
+                            if isinstance(value, CellRichText):
+                                for block in value:
+                                    if isinstance(block, TextBlock):
+                                        text = block.text
+                                        is_bold = False
+                                        if block.font and hasattr(block.font, 'b') and block.font.b:
+                                            is_bold = True
+                                        content_parts.append({"text": text, "bold": is_bold})
+                                    else:
+                                        content_parts.append({"text": str(block), "bold": False})
+                            else:
+                                text = str(value) if value else ""
+                                is_bold = False
+                                if cell.font and hasattr(cell.font, 'b') and cell.font.b:
+                                    is_bold = True
+                                content_parts.append({"text": text, "bold": is_bold})
+                            story[header] = content_parts
+                        else:
+                            story[header] = value
+                    
+                    # 只添加非空故事
+                    if any(v for v in story.values() if v):
+                        excel_stories.append(story)
+                
+                logger.info(f"📚 从Excel读取到 {len(excel_stories)} 个故事")
+                
+                # 获取音频文件列表（用于匹配）
+                audio_files = {}
+                if os.path.exists(story_audio_dir):
+                    for f in os.listdir(story_audio_dir):
+                        if f.endswith('.mp3'):
+                            # 去掉扩展名作为key
+                            audio_key = f.replace('.mp3', '')
+                            audio_files[audio_key] = f
+                
+                # 为每个Excel中的故事创建故事对象
+                for idx, excel_story in enumerate(excel_stories, 1):
+                    title = excel_story.get(title_col, "")
+                    if not title:
+                        continue
+                    
+                    # 处理内容（完整保留所有文本，包括换行符）
+                    content_parts = excel_story.get(content_col, [])
+                    content_str = ""
+                    if isinstance(content_parts, list):
+                        for part in content_parts:
+                            text = part.get("text", "") if isinstance(part, dict) else str(part)
+                            is_bold = part.get("bold", False) if isinstance(part, dict) else False
+                            if text:  # 只处理非空文本
+                                if is_bold:
+                                    content_str += f"**{text}**"
+                                else:
+                                    content_str += text
+                    else:
+                        # 如果不是列表，直接转换为字符串（保留换行符）
+                        content_str = str(content_parts) if content_parts else ""
+                    
+                    # 确保内容不为空，如果为空则使用标题作为占位符
+                    if not content_str or content_str.strip() == "":
+                        content_str = title
+                        logger.warning(f"⚠️ 故事 '{title}' 的内容为空，使用标题作为占位符")
+                    
+                    # 记录内容长度用于调试
+                    logger.debug(f"📝 故事 '{title}' 内容长度: {len(content_str)} 字符")
+                    
+                    # 匹配音频文件（尝试精确匹配和模糊匹配）
+                    audio_file = None
+                    audio_file_path = None
+                    
+                    # 精确匹配
+                    if title in audio_files:
+                        audio_file = audio_files[title]
+                    else:
+                        # 模糊匹配：查找包含标题关键字的音频文件
+                        title_keywords = title.replace('"', '').replace('：', ':').replace('，', ',')
+                        for audio_key, audio_name in audio_files.items():
+                            # 检查标题是否在音频文件名中，或音频文件名是否在标题中
+                            if title_keywords in audio_key or audio_key in title_keywords:
+                                audio_file = audio_name
+                                break
+                    
+                    if audio_file:
+                        audio_file_path = f"story_audio/{audio_file}"
+                    else:
+                        logger.warning(f"⚠️ 未找到故事 '{title}' 的音频文件")
+                    
+                    # 生成故事ID（基于索引，1-30）
+                    story_id = f"story_{idx:03d}"
+                    
+                    story = {
+                        'story_id': story_id,
+                        'title': title,
+                        'content': content_str,
+                        'audio_file_path': audio_file_path,
+                        'audio_duration_seconds': 0,
+                        'is_active': True,
+                        'created_at': None,
+                        'updated_at': None
+                    }
+                    stories.append(story)
+                
+                logger.info(f"✅ 成功生成 {len(stories)} 个故事对象（来自Excel）")
+                return stories
+                
+            except Exception as e:
+                logger.error(f"❌ 获取故事列表失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    return []
+        return []
 
     def close(self):
         """关闭数据库连接"""
