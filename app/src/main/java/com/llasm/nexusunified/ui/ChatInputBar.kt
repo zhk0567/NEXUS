@@ -380,13 +380,12 @@ fun VoiceModeInputBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // 返回文字模式按钮
+        // 返回文字模式按钮 - 允许随时切换，不受其他状态影响
         IconButton(
             onClick = { 
                 // 立即切换回文字模式
                 onVoiceModeChange(false)
             },
-            enabled = !isLoading && !isStreaming && !isASRRecognizing && !isRecording,
             modifier = Modifier.size(40.dp)
         ) {
             Icon(

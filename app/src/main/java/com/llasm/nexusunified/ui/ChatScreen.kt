@@ -277,6 +277,7 @@ fun ChatScreen(
     var shouldStayInVoiceMode by remember { mutableStateOf(false) }
     
     // 监听状态变化，确保发送完成后保持在语音模式
+    // 注意：只有在用户没有手动切换到文字模式时才保持语音模式
     LaunchedEffect(isASRRecognizing, isLoading, isStreaming, isVoiceMode) {
         // 当开始ASR识别时，标记应该保持在语音模式
         if (isASRRecognizing) {
@@ -285,14 +286,17 @@ fun ChatScreen(
         }
         
         // 当ASR识别完成、AI处理完成时，确保保持在语音模式
-        if (!isASRRecognizing && !isLoading && !isStreaming && shouldStayInVoiceMode) {
+        // 但只有在当前已经是语音模式时才强制保持，避免覆盖用户的手动切换
+        if (!isASRRecognizing && !isLoading && !isStreaming && shouldStayInVoiceMode && isVoiceMode) {
             android.util.Log.d("ChatScreen", "状态检查：ASR识别完成，AI处理完成，保持语音模式，当前isVoiceMode=${isVoiceMode}")
-            // 确保isVoiceMode保持为true
-            if (!isVoiceMode) {
-                android.util.Log.w("ChatScreen", "检测到isVoiceMode被意外重置为false，重新设置为true")
-                isVoiceMode = true
+            // 如果用户已经切换到文字模式，不要强制切换回语音模式
+            // 这里不再强制设置isVoiceMode，让用户的选择优先
+        } else if (!isASRRecognizing && !isLoading && !isStreaming && !isVoiceMode) {
+            // 如果用户已经切换到文字模式，重置标志
+            if (shouldStayInVoiceMode) {
+                android.util.Log.d("ChatScreen", "用户已切换到文字模式，重置shouldStayInVoiceMode")
+                shouldStayInVoiceMode = false
             }
-            // 不要重置标志，保持shouldStayInVoiceMode为true，直到用户手动切换
         }
     }
     
