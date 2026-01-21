@@ -174,11 +174,11 @@ fun SettingsPage(
             }
             
             
-            // 关于AI对话
+            // 关于每日对话
             item {
                 SettingsItem(
                     icon = Icons.Default.Info,
-                    title = "关于AI对话",
+                    title = "关于每日对话",
                     subtitle = "应用信息和介绍",
                     themeColors = themeColors,
                     fontStyle = fontStyle,

@@ -48,7 +48,7 @@ fun AboutPage(
                 ),
                 title = {
                     Text(
-                        text = "关于AI对话",
+                        text = "关于每日对话",
                         style = fontStyle.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -95,7 +95,7 @@ fun AboutPage(
                         // 应用图标
                         Image(
                             painter = painterResource(id = R.mipmap.ic_launcher),
-                                contentDescription = "AI对话",
+                                contentDescription = "每日对话",
                             modifier = Modifier.size(80.dp)
                             )
                         
@@ -103,7 +103,7 @@ fun AboutPage(
                         
                         // 应用名称
                         Text(
-                            text = "AI对话",
+                            text = "每日对话",
                             style = fontStyle.headlineSmall.copy(fontSize = 32.sp),
                             color = themeColors.textPrimary,
                             fontWeight = FontWeight.Bold
@@ -146,7 +146,7 @@ fun AboutPage(
                         Spacer(modifier = Modifier.height(12.dp))
                         
                         Text(
-                            text = "人工智能（AI）对话是一款智能AI对话应用，集成了先进的语音识别、文本转语音和自然语言处理技术。",
+                            text = "每日对话是一款智能AI对话应用，集成了先进的语音识别、文本转语音和自然语言处理技术。",
                             style = fontStyle.bodyMedium,
                             color = themeColors.textPrimary,
                             lineHeight = fontStyle.bodyMedium.lineHeight * 1.5
@@ -168,8 +168,7 @@ fun AboutPage(
                             "• 语音输入输出，解放双手",
                             "• 多种音色选择，个性化体验",
                             "• 深色/浅色主题，护眼舒适",
-                            "• 历史记录管理，随时回顾",
-                            "• 云端同步，多设备共享"
+                            "• 历史记录管理，随时回顾"
                         )
                         
                         features.forEach { feature ->

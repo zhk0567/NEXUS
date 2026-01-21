@@ -525,7 +525,7 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = "AI对话",
+                        text = "每日对话",
                         style = fontStyle.headlineSmall.copy(
                             fontSize = 48.sp, // 放大到48sp
                             fontWeight = FontWeight.Bold,

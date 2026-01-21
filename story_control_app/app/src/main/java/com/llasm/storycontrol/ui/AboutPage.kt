@@ -3,8 +3,9 @@ package com.llasm.storycontrol.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -67,135 +68,160 @@ fun AboutPage(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        val scrollState = rememberScrollState()
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(themeColors.background)
                 .padding(paddingValues)
+                .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp)
-                .padding(top = 8.dp),
+                .padding(top = 8.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 应用信息卡片
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = themeColors.surface
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                    border = BorderStroke(1.dp, themeColors.cardBorder)
+            // 故事来源说明（放在最上面）
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = themeColors.surface
+                ),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                border = BorderStroke(1.dp, themeColors.cardBorder)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
                 ) {
-                    Column(
+                    Text(
+                        text = "故事来源于杂志老年博览2025年1月至10月期刊。",
+                        style = fontStyle.bodyMedium,
+                        color = themeColors.textSecondary,
+                        lineHeight = 24.sp
+                    )
+                }
+            }
+            
+            // 应用信息卡片
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = themeColors.surface
+                ),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                border = BorderStroke(1.dp, themeColors.cardBorder)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // 应用图标
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .size(80.dp)
+                            .background(
+                                themeColors.primary,
+                                RoundedCornerShape(16.dp)
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        // 应用图标
-                        Box(
-                            modifier = Modifier
-                                .size(80.dp)
-                                .background(
-                                    themeColors.primary,
-                                    RoundedCornerShape(16.dp)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MenuBook,
-                                contentDescription = "每日故事",
-                                tint = Color.White,
-                                modifier = Modifier.size(40.dp)
-                            )
-                        }
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        // 应用名称
-                        Text(
-                            text = "每日故事",
-                            style = fontStyle.headlineSmall.copy(fontSize = 32.sp),
-                            color = themeColors.textPrimary,
-                            fontWeight = FontWeight.Bold
+                        Icon(
+                            imageVector = Icons.Default.MenuBook,
+                            contentDescription = "每日故事",
+                            tint = Color.White,
+                            modifier = Modifier.size(40.dp)
                         )
-                        
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        // 版本信息
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // 应用名称
+                    Text(
+                        text = "每日故事",
+                        style = fontStyle.headlineSmall.copy(fontSize = 32.sp),
+                        color = themeColors.textPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // 版本信息
+                    Text(
+                        text = "版本 1.0.0",
+                        style = fontStyle.titleMedium,
+                        color = themeColors.textSecondary
+                    )
+                }
+            }
+            
+            // 应用介绍
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = themeColors.surface
+                ),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                border = BorderStroke(1.dp, themeColors.cardBorder)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                ) {
+                    Text(
+                        text = "应用介绍",
+                        style = fontStyle.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = themeColors.textPrimary
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Text(
+                        text = "每日故事是一款专为儿童设计的智能故事阅读应用，提供丰富的故事内容和个性化的阅读体验。",
+                        style = fontStyle.bodyMedium,
+                        color = themeColors.textPrimary,
+                        lineHeight = 24.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Text(
+                        text = "主要功能：",
+                        style = fontStyle.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = themeColors.textPrimary
+                    )
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    val features = listOf(
+                        "• 精选儿童故事，内容丰富多样",
+                        "• 文字+音频双重阅读模式",
+                        "• 智能阅读进度管理",
+                        "• 个性化主题设置",
+                        "• 用户账号系统",
+                        "• 阅读统计和记录"
+                    )
+                    
+                    features.forEach { feature ->
                         Text(
-                            text = "版本 1.0.0",
-                            style = fontStyle.titleMedium,
-                            color = themeColors.textSecondary
+                            text = feature,
+                            style = fontStyle.bodyMedium,
+                            color = themeColors.textPrimary,
+                            modifier = Modifier.padding(vertical = 2.dp)
                         )
                     }
                 }
             }
             
-            // 应用介绍
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = themeColors.surface
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    border = BorderStroke(1.dp, themeColors.cardBorder)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp)
-                    ) {
-                        Text(
-                            text = "应用介绍",
-                            style = fontStyle.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = themeColors.textPrimary
-                        )
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        Text(
-                            text = "每日故事是一款专为儿童设计的智能故事阅读应用，提供丰富的故事内容和个性化的阅读体验。",
-                            style = fontStyle.bodyMedium,
-                            color = themeColors.textPrimary,
-                            lineHeight = 24.sp
-                        )
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        Text(
-                            text = "主要功能：",
-                            style = fontStyle.titleMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = themeColors.textPrimary
-                        )
-                        
-                        Spacer(modifier = Modifier.height(4.dp))
-                        
-                        val features = listOf(
-                            "• 精选儿童故事，内容丰富多样",
-                            "• 文字+音频双重阅读模式",
-                            "• 智能阅读进度管理",
-                            "• 个性化主题设置",
-                            "• 用户账号系统",
-                            "• 阅读统计和记录"
-                        )
-                        
-                        features.forEach { feature ->
-                            Text(
-                                text = feature,
-                                style = fontStyle.bodyMedium,
-                                color = themeColors.textPrimary,
-                                modifier = Modifier.padding(vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
-            }
+            // 底部间距，确保可以滚动到底部
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }

@@ -4,8 +4,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
@@ -58,13 +60,41 @@ fun AboutSettingsScreen(
             )
         }
     ) { paddingValues ->
+        val scrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
                 .background(themeColors.background)
+                .padding(paddingValues)
+                .verticalScroll(scrollState)
                 .padding(16.dp)
         ) {
+            // 故事来源说明（放在最上面）
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = themeColors.cardBackground
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, themeColors.cardBorder)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                ) {
+                    Text(
+                        text = "故事来源于杂志老年博览2025年1月至10月期刊。",
+                        style = fontStyle.bodyMedium,
+                        color = themeColors.textSecondary,
+                        lineHeight = 24.sp
+                    )
+                }
+            }
+            
             // 应用信息
             Card(
                 modifier = Modifier
@@ -202,6 +232,9 @@ fun AboutSettingsScreen(
                     }
                 }
             }
+            
+            // 底部间距，确保可以滚动到底部
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }

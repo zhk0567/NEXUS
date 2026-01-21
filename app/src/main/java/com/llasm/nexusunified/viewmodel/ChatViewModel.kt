@@ -164,7 +164,7 @@ class ChatViewModel : ViewModel() {
                     // 聊天成功
                     val duration = (System.currentTimeMillis() - startTime) / 1000.0
                 } else {
-                    _error.value = "AI对话失败: ${result.exceptionOrNull()?.message}"
+                    _error.value = "每日对话失败: ${result.exceptionOrNull()?.message}"
                     
                 }
             } catch (e: Exception) {
@@ -253,7 +253,7 @@ class ChatViewModel : ViewModel() {
                     )
                     addMessage(aiMessage)
                 } else {
-                    _error.value = "AI对话失败: ${chatResult.exceptionOrNull()?.message}"
+                    _error.value = "每日对话失败: ${chatResult.exceptionOrNull()?.message}"
                 }
                 
             } catch (e: Exception) {
