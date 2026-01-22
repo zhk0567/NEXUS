@@ -562,30 +562,61 @@ class DatabaseManager:
         return None
     
     def end_user_sessions(self, user_id: str, app_type: str = None) -> int:
-        """结束用户的所有会话（或指定app类型的会话）"""
-        try:
-            with self.connection.cursor() as cursor:
-                if app_type:
-                    # 清除指定app类型的会话信息
-                    sql = """
-                    UPDATE users 
-                    SET session_id = NULL, app_type = NULL, device_info = NULL, ip_address = NULL
-                    WHERE user_id = %s AND app_type = %s
-                    """
-                    cursor.execute(sql, (user_id, app_type))
+        """结束用户的所有会话（或指定app类型的会话）（带连接健康检查和自动重连）"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # 检查连接健康状态
+                if not self.is_connection_healthy():
+                    logger.debug(f"数据库连接不健康，尝试重连 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
+                
+                with self.connection.cursor() as cursor:
+                    if app_type:
+                        # 清除指定app类型的会话信息
+                        sql = """
+                        UPDATE users 
+                        SET session_id = NULL, app_type = NULL, device_info = NULL, ip_address = NULL
+                        WHERE user_id = %s AND app_type = %s
+                        """
+                        cursor.execute(sql, (user_id, app_type))
+                    else:
+                        # 清除所有会话信息
+                        sql = """
+                        UPDATE users 
+                        SET session_id = NULL, app_type = NULL, device_info = NULL, ip_address = NULL
+                        WHERE user_id = %s
+                        """
+                        cursor.execute(sql, (user_id,))
+                    self.connection.commit()
+                    return cursor.rowcount
+            except (pymysql.Error, ConnectionError, OSError) as e:
+                error_msg = str(e)
+                # 检查是否是连接相关错误
+                if any(keyword in error_msg.lower() for keyword in ['gone away', 'lost connection', 'broken pipe', 'connection aborted', '10053']):
+                    logger.debug(f"数据库连接错误，尝试重连 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
+                    if attempt < max_retries - 1:
+                        try:
+                            self.reconnect()
+                            time.sleep(self.retry_delay * (attempt + 1))
+                            continue
+                        except Exception as reconnect_error:
+                            logger.error(f"重连失败: {reconnect_error}")
+                    else:
+                        logger.error(f"❌ 结束会话失败（连接错误，已重试 {max_retries} 次）: {error_msg}")
+                        return 0
                 else:
-                    # 清除所有会话信息
-                    sql = """
-                    UPDATE users 
-                    SET session_id = NULL, app_type = NULL, device_info = NULL, ip_address = NULL
-                    WHERE user_id = %s
-                    """
-                    cursor.execute(sql, (user_id,))
-                self.connection.commit()
-                return cursor.rowcount
-        except Exception as e:
-            logger.error(f"❌ 结束会话失败: {e}")
-            return 0
+                    # 其他类型的错误，直接返回
+                    if attempt == max_retries - 1:
+                        logger.error(f"❌ 结束会话失败: {error_msg}")
+                    return 0
+            except Exception as e:
+                # 其他未知错误
+                if attempt == max_retries - 1:
+                    logger.error(f"❌ 结束会话失败: {e}")
+                return 0
+        
+        return 0
     
     def get_active_sessions(self, user_id: str, app_type: str = None) -> List[Dict]:
         """获取用户的活跃会话（从 users 表获取）"""
@@ -826,26 +857,57 @@ class DatabaseManager:
         return False
     
     def end_session(self, session_id: str) -> bool:
-        """结束用户会话"""
-        try:
-            with self.connection.cursor() as cursor:
-                sql = """
-                UPDATE users 
-                SET session_id = NULL, app_type = NULL, device_info = NULL, ip_address = NULL
-                WHERE session_id = %s
-                """
-                cursor.execute(sql, (session_id,))
-                self.connection.commit()
+        """结束用户会话（带连接健康检查和自动重连）"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # 检查连接健康状态
+                if not self.is_connection_healthy():
+                    logger.debug(f"数据库连接不健康，尝试重连 (尝试 {attempt + 1}/{max_retries})")
+                    self.reconnect()
                 
-                if cursor.rowcount > 0:
-                    # 会话结束成功，不输出日志
-                    return True
+                with self.connection.cursor() as cursor:
+                    sql = """
+                    UPDATE users 
+                    SET session_id = NULL, app_type = NULL, device_info = NULL, ip_address = NULL
+                    WHERE session_id = %s
+                    """
+                    cursor.execute(sql, (session_id,))
+                    self.connection.commit()
+                    
+                    if cursor.rowcount > 0:
+                        # 会话结束成功，不输出日志
+                        return True
+                    else:
+                        # 会话不存在，不一定是错误，可能是已经结束过了
+                        return False
+            except (pymysql.Error, ConnectionError, OSError) as e:
+                error_msg = str(e)
+                # 检查是否是连接相关错误
+                if any(keyword in error_msg.lower() for keyword in ['gone away', 'lost connection', 'broken pipe', 'connection aborted', '10053']):
+                    logger.debug(f"数据库连接错误，尝试重连 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
+                    if attempt < max_retries - 1:
+                        try:
+                            self.reconnect()
+                            time.sleep(self.retry_delay * (attempt + 1))
+                            continue
+                        except Exception as reconnect_error:
+                            logger.error(f"重连失败: {reconnect_error}")
+                    else:
+                        logger.error(f"❌ 结束会话失败（连接错误，已重试 {max_retries} 次）: {error_msg}")
+                        return False
                 else:
-                    logger.warning(f"⚠️ 会话不存在: {session_id}")
+                    # 其他类型的错误，直接返回
+                    if attempt == max_retries - 1:
+                        logger.error(f"❌ 结束会话失败: {error_msg}")
                     return False
-        except Exception as e:
-            logger.error(f"❌ 结束会话失败: {e}")
-            return False
+            except Exception as e:
+                # 其他未知错误
+                if attempt == max_retries - 1:
+                    logger.error(f"❌ 结束会话失败: {e}")
+                return False
+        
+        return False
     
     def log_interaction(self, user_id: str, interaction_type: str, content: str, 
                        response: str = None, session_id: str = None, 
