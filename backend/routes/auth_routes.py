@@ -41,17 +41,12 @@ def register_auth_routes(app):
                 elif 'ai' in device_info.lower() or 'chat' in device_info.lower():
                     app_type = 'ai_chat'
 
-            # 用户认证（只允许user01-user10这10个账号）
+            # 用户认证（允许所有数据库中的激活用户登录）
             user = db_manager.authenticate_user(username, password)
             if not user:
                 db_manager.log_system_event(
                     'WARNING', 'auth', f'登录失败: {username}'
                 )
-                # 检查是否是白名单问题
-                if username not in ALLOWED_USERS:
-                    return jsonify({
-                        'error': '该账号不允许登录，请联系管理员'
-                    }), 403
                 return jsonify({
                     'error': '用户名或密码错误'
                 }), 401
@@ -144,14 +139,11 @@ def register_auth_routes(app):
             username = data['username']
             password = data['password']
 
-            # 只允许注册白名单中的账号
-            if username not in ALLOWED_USERS:
-                logger.warning(
-                    f"⚠️ 拒绝注册：用户名 '{username}' 不在允许列表中"
-                )
-                return jsonify({
-                    'error': '注册功能已禁用，只允许使用预置账号'
-                }), 403
+            # 注册功能已禁用，用户需要通过管理员批量创建
+            # 如果需要启用注册，可以移除此检查
+            return jsonify({
+                'error': '注册功能已禁用，请联系管理员创建账号'
+            }), 403
 
             # 检查用户名是否已存在
             if db_manager.get_user_by_username(username):

@@ -56,9 +56,7 @@ TTS_CONFIG = {
     'chunk_size': 1024
 }
 
-# 允许登录的用户白名单
-ALLOWED_USERS = {
-    'user01', 'user02', 'user03', 'user04', 'user05',
-    'user06', 'user07', 'user08', 'user09', 'user10'
-}
+# 允许登录的用户白名单（已移除限制，允许所有数据库中的激活用户登录）
+# 如果需要限制特定用户，可以在这里添加
+ALLOWED_USERS = None  # None 表示不限制，允许所有激活用户登录
 

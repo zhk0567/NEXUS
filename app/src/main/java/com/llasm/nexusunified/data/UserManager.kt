@@ -23,21 +23,6 @@ object UserManager {
     
     fun isLoggedIn(): Boolean {
         val isLoggedIn = sharedPreferences?.getBoolean(KEY_IS_LOGGED_IN, false) ?: false
-        if (!isLoggedIn) {
-            return false
-        }
-        
-        // 检查用户名是否在白名单中
-        val username = getUsername()
-        val ALLOWED_USERS = setOf("user01", "user02", "user03", "user04", "user05",
-                                  "user06", "user07", "user08", "user09", "user10")
-        
-        if (username == null || username !in ALLOWED_USERS) {
-            android.util.Log.w("UserManager", "用户 '$username' 不在允许列表中，清除登录状态")
-            logout()
-            return false
-        }
-        
         return isLoggedIn
     }
     

@@ -92,20 +92,9 @@ fun loginUser(username: String, password: String, callback: (Boolean, String?) -
             }
             
             if (responseCode == HttpURLConnection.HTTP_OK && jsonResponse.optBoolean("success", false)) {
-                // 登录成功，检查账号是否在白名单中
+                // 登录成功
                 val user = jsonResponse.getJSONObject("user")
                 val username = user.getString("username")
-                
-                // 白名单：只允许这10个账号
-                val ALLOWED_USERS = setOf("user01", "user02", "user03", "user04", "user05",
-                                          "user06", "user07", "user08", "user09", "user10")
-                
-                if (username !in ALLOWED_USERS) {
-                    android.util.Log.w("LoginDialog", "拒绝登录：用户名 '$username' 不在允许列表中")
-                    callback(false, "该账号不允许登录，请联系管理员")
-                    return@Thread
-                }
-                
                 val sessionId = jsonResponse.getString("session_id")
                 
                 val userData = UserData(
