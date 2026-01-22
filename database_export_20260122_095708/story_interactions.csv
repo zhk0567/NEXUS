@@ -1,0 +1,58 @@
+﻿id,user_id,username,story_id,interaction_type,interaction_data,timestamp,device_info
+1,user_82b61036,user01,story_021,first_scroll,"{""timestamp"": 1768537050162, ""max_scroll"": 9260, ""scroll_position"": 52}",2026-01-16 12:17:29,Android
+2,user_82b61036,user01,story_021,first_scroll,"{""timestamp"": 1768537051340, ""max_scroll"": 9260, ""scroll_position"": 1197}",2026-01-16 12:17:30,Android
+3,user_82b61036,user01,story_021,audio_play_click,"{""play_time"": 1768537087500, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 325056}",2026-01-16 12:18:06,Android
+4,user_6241f5ba,user07,story_024,first_scroll,"{""timestamp"": 1768815662835, ""max_scroll"": 8283, ""scroll_position"": 535}",2026-01-19 17:41:03,Android
+5,user_6241f5ba,user07,story_024,text_complete,"{""completion_mode"": ""text""}",2026-01-19 17:41:57,Android App
+6,user_6241f5ba,user07,story_024,text_complete_button_click,"{""max_scroll"": 7696, ""completion_time"": 1768815717173, ""scroll_position"": 7696, ""reading_duration"": 0, ""completion_method"": ""text""}",2026-01-19 17:41:57,Android
+7,user_6241f5ba,user07,story_024,audio_play_click,"{""play_time"": 1768815793659, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 332088}",2026-01-19 17:43:14,Android
+8,user_6241f5ba,user07,story_024,audio_play_click,"{""play_time"": 1768815804242, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 332088}",2026-01-19 17:43:24,Android
+9,user_6241f5ba,user07,story_024,audio_play_click,"{""play_time"": 1768815827021, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 332088}",2026-01-19 17:43:47,Android
+10,user_82b61036,user01,story_025,first_scroll,"{""timestamp"": 1768886149797, ""max_scroll"": 9341, ""scroll_position"": 66}",2026-01-20 13:15:49,Android
+11,user_82b61036,user01,story_025,first_scroll,"{""timestamp"": 1768886152098, ""max_scroll"": 9341, ""scroll_position"": 48}",2026-01-20 13:15:51,Android
+12,user_6241f5ba,user07,story_025,first_scroll,"{""timestamp"": 1768886424256, ""max_scroll"": 8364, ""scroll_position"": 107}",2026-01-20 13:20:24,Android
+13,user_ad72b10b,user09,story_025,first_scroll,"{""timestamp"": 1768892047558, ""max_scroll"": 1762, ""scroll_position"": 59}",2026-01-20 14:54:08,Android
+14,user_ad72b10b,user09,story_025,first_scroll,"{""timestamp"": 1768892049855, ""max_scroll"": 1762, ""scroll_position"": 852}",2026-01-20 14:54:17,Android
+15,user_ad72b10b,user09,story_025,audio_play_click,"{""play_time"": 1768892096578, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 331392}",2026-01-20 14:54:59,Android
+16,user_ad72b10b,user09,story_025,audio_play_click,"{""play_time"": 1768892110699, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 331392}",2026-01-20 14:55:10,Android
+17,user_6241f5ba,user07,story_025,audio_play_click,"{""play_time"": 1768900756034, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 331392}",2026-01-20 17:19:15,Android
+18,user_6241f5ba,user07,story_025,text_complete,"{""completion_mode"": ""text""}",2026-01-20 17:19:20,Android App
+19,user_6241f5ba,user07,story_025,text_complete_button_click,"{""max_scroll"": 7615, ""completion_time"": 1768900761954, ""scroll_position"": 339, ""reading_duration"": 0, ""completion_method"": ""text""}",2026-01-20 17:19:21,Android
+20,user_6241f5ba,user07,story_026,first_scroll,"{""timestamp"": 1768955924621, ""max_scroll"": 7291, ""scroll_position"": 414}",2026-01-21 08:38:44,Android
+21,user_6241f5ba,user07,story_026,audio_play_click,"{""play_time"": 1768955926171, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 279096}",2026-01-21 08:38:45,Android
+22,user_6a1d01cd,user03,story_026,audio_play_click,"{""play_time"": 1768966656631, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 279096}",2026-01-21 11:37:36,Android
+23,user_6a1d01cd,user03,story_026,first_scroll,"{""timestamp"": 1768966725848, ""max_scroll"": 5034, ""scroll_position"": 1985}",2026-01-21 11:38:46,Android
+24,user_6a1d01cd,user03,story_026,first_scroll,"{""timestamp"": 1768968465763, ""max_scroll"": 5034, ""scroll_position"": 175}",2026-01-21 12:07:45,Android
+25,user_ad72b10b,user09,story_026,first_scroll,"{""timestamp"": 1768968511023, ""max_scroll"": 1370, ""scroll_position"": 496}",2026-01-21 12:08:31,Android
+26,user_6a1d01cd,user03,story_026,first_scroll,"{""timestamp"": 1769055053105, ""max_scroll"": 5034, ""scroll_position"": 556}",2026-01-21 12:10:53,Android
+27,user_6a1d01cd,user03,story_026,first_scroll,"{""timestamp"": 1768968680682, ""max_scroll"": 5034, ""scroll_position"": 4731}",2026-01-21 12:11:20,Android
+28,user_6a1d01cd,user03,story_026,text_complete,"{""completion_mode"": ""text""}",2026-01-21 12:20:33,Android App
+29,user_6a1d01cd,user03,story_026,text_complete_button_click,"{""max_scroll"": 5018, ""completion_time"": 1768969233938, ""scroll_position"": 0, ""reading_duration"": 0, ""completion_method"": ""text""}",2026-01-21 12:20:34,Android
+30,user_6241f5ba,user07,story_026,audio_play_click,"{""play_time"": 1768969668551, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 279096}",2026-01-21 12:27:48,Android
+31,user_82b61036,user01,story_026,first_scroll,"{""timestamp"": 1768969780315, ""max_scroll"": 8250, ""scroll_position"": 445}",2026-01-21 12:29:40,Android
+32,user_6241f5ba,user07,story_026,first_scroll,"{""timestamp"": 1768970339138, ""max_scroll"": 7291, ""scroll_position"": 2539}",2026-01-21 12:38:58,Android
+33,user_6241f5ba,user07,story_026,audio_play_click,"{""play_time"": 1768970341127, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 279096}",2026-01-21 12:39:00,Android
+34,user_6241f5ba,user07,story_026,audio_play_click,"{""play_time"": 1768970626248, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 279096}",2026-01-21 12:43:45,Android
+35,user_6241f5ba,user07,story_026,audio_complete,"{""completion_mode"": ""audio""}",2026-01-21 12:44:30,Android App
+36,user_6241f5ba,user07,story_026,audio_complete_button_click,"{""is_real_audio"": true, ""audio_duration"": 279096, ""completion_time"": 1768970671940, ""completion_method"": ""audio""}",2026-01-21 12:44:31,Android
+37,user_790bf093,user05,story_026,audio_play_click,"{""play_time"": 1768970717088, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 279096}",2026-01-21 12:45:17,Android
+38,user_790bf093,user05,story_026,audio_complete,"{""completion_mode"": ""audio""}",2026-01-21 12:49:58,Android App
+39,user_790bf093,user05,story_026,audio_complete_button_click,"{""is_real_audio"": true, ""audio_duration"": 279096, ""completion_time"": 1768970998509, ""completion_method"": ""audio""}",2026-01-21 12:49:58,Android
+40,user_ffa34386,user08,story_026,audio_play_click,"{""play_time"": 1768983273406, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 279096}",2026-01-21 16:14:33,Android
+41,user_ffa34386,user08,story_026,first_scroll,"{""timestamp"": 1768983275691, ""max_scroll"": 5374, ""scroll_position"": 438}",2026-01-21 16:14:35,Android
+42,user_ffa34386,user08,story_026,audio_play_click,"{""play_time"": 1768983280560, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 279096}",2026-01-21 16:14:40,Android
+43,user_ffa34386,user08,story_026,text_complete,"{""completion_mode"": ""text""}",2026-01-21 16:15:32,Android App
+44,user_ffa34386,user08,story_026,text_complete_button_click,"{""max_scroll"": 5019, ""completion_time"": 1768983333173, ""scroll_position"": 4717, ""reading_duration"": 0, ""completion_method"": ""text""}",2026-01-21 16:15:33,Android
+45,user_ad72b10b,user09,story_026,first_scroll,"{""timestamp"": 1769007778347, ""max_scroll"": 1438, ""scroll_position"": 1003}",2026-01-21 23:02:58,Android
+46,user_ad72b10b,user09,story_026,text_complete,"{""completion_mode"": ""text""}",2026-01-21 23:04:00,Android App
+47,user_ad72b10b,user09,story_026,text_complete_button_click,"{""max_scroll"": 1425, ""completion_time"": 1769007840481, ""scroll_position"": 1387, ""reading_duration"": 0, ""completion_method"": ""text""}",2026-01-21 23:04:00,Android
+48,user_6241f5ba,user07,story_027,audio_play_click,"{""play_time"": 1769013601775, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 284136}",2026-01-22 00:40:01,Android
+49,user_6241f5ba,user07,story_027,audio_complete,"{""completion_mode"": ""audio""}",2026-01-22 00:50:47,Android App
+50,user_6241f5ba,user07,story_027,audio_complete_button_click,"{""is_real_audio"": true, ""audio_duration"": 284136, ""completion_time"": 1769014248900, ""completion_method"": ""audio""}",2026-01-22 00:50:48,Android
+51,user_ffa34386,user08,story_027,first_scroll,"{""timestamp"": 1769014294909, ""max_scroll"": 7291, ""scroll_position"": 887}",2026-01-22 00:51:34,Android
+52,user_ffa34386,user08,story_027,audio_play_click,"{""play_time"": 1769014297166, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 284136}",2026-01-22 00:51:36,Android
+53,user_ffa34386,user08,story_027,first_scroll,"{""timestamp"": 1769015557663, ""max_scroll"": 7291, ""scroll_position"": 77}",2026-01-22 01:12:37,Android
+54,user_ffa34386,user08,story_027,audio_play_click,"{""play_time"": 1769015561388, ""audio_type"": ""real"", ""is_real_audio"": true, ""audio_duration"": 284136}",2026-01-22 01:12:40,Android
+55,user_ffa34386,user08,story_027,first_scroll,"{""timestamp"": 1769021730391, ""max_scroll"": 7291, ""scroll_position"": 1532}",2026-01-22 02:55:29,Android
+56,user_ffa34386,user08,story_027,text_complete,"{""completion_mode"": ""text""}",2026-01-22 02:56:16,Android App
+57,user_ffa34386,user08,story_027,text_complete_button_click,"{""max_scroll"": 7109, ""completion_time"": 1769021777313, ""scroll_position"": 1057, ""reading_duration"": 0, ""completion_method"": ""text""}",2026-01-22 02:56:16,Android
