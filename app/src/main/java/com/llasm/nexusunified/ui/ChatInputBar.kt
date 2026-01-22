@@ -504,7 +504,7 @@ fun VoiceModeInputBar(
                     // 正常状态：只显示文字
                     Text(
                         text = when {
-                            isLoading || isStreaming -> "AI处理中..."
+                            isLoading || isStreaming -> "小美正在思考"
                             isASRRecognizing -> asrRecognizingText.ifEmpty { "正在识别中..." }
                             else -> "按住说话"
                         },
