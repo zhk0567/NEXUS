@@ -388,24 +388,13 @@ fun StoryScreen() {
     LaunchedEffect(Unit) {
         while (true) {
             delay(100) // 更频繁的更新，每100ms更新一次
-            if (isPlaying && showAudioPlayer) {
-                if (duration > 0) {
-                    // 真实音频文件
-                    try {
-                        val position = mediaPlayer?.currentPosition ?: 0
-                        currentPosition = position
-                    } catch (e: Exception) {
-                        android.util.Log.e("StoryScreen", "获取音频位置失败: ${e.message}")
-                    }
-                } else {
-                    // 模拟音频，手动递增
-                    currentPosition += 100
-                    if (currentPosition >= 30000) { // 30秒后完成
-                        currentPosition = 30000
-                        isPlaying = false
-                        isAudioCompleted = true
-                        android.util.Log.d("StoryScreen", "模拟音频播放完成")
-                    }
+            if (isPlaying && showAudioPlayer && duration > 0) {
+                // 只处理真实音频文件
+                try {
+                    val position = mediaPlayer?.currentPosition ?: 0
+                    currentPosition = position
+                } catch (e: Exception) {
+                    android.util.Log.e("StoryScreen", "获取音频位置失败: ${e.message}")
                 }
             }
         }
@@ -703,9 +692,6 @@ fun StoryScreen() {
                             mediaPlayer?.stop()
                             mediaPlayer?.release()
                             android.util.Log.d("StoryScreen", "退出音频页面，停止并释放真实音频")
-                        } else {
-                            // 模拟音频，手动停止
-                            android.util.Log.d("StoryScreen", "退出音频页面，停止模拟音频")
                         }
                         mediaPlayer = null
                         isPlaying = false
@@ -723,17 +709,14 @@ fun StoryScreen() {
                 android.util.Log.d("StoryScreen", "点击播放按钮，当前状态: isPlaying=$isPlaying, mediaPlayer=$mediaPlayer")
                 
                 if (isPlaying) {
-                    // 暂停播放
+                    // 暂停播放（仅真实音频）
                     try {
-                        if (duration > 0) {
+                        if (duration > 0 && mediaPlayer != null) {
                             // 真实音频文件
                             mediaPlayer?.pause()
                             android.util.Log.d("StoryScreen", "真实音频已暂停")
-                        } else {
-                            // 模拟音频，手动管理状态
-                            android.util.Log.d("StoryScreen", "模拟音频已暂停")
+                            isPlaying = false
                         }
-                        isPlaying = false
                     } catch (e: Exception) {
                         android.util.Log.e("StoryScreen", "暂停失败: ${e.message}")
                         isPlaying = false
@@ -771,9 +754,16 @@ fun StoryScreen() {
                                 val storyId = currentStory?.id ?: "2024-01-01"
                                 val storyTitle = currentStory?.title
                                 
+                                android.util.Log.d("StoryScreen", "开始查找音频文件: storyId=$storyId, title=$storyTitle")
+                                
                                 // 获取所有可用的音频文件列表
                                 val availableFiles = try {
-                                    context.assets.list("story_audio")?.toList() ?: emptyList()
+                                    val files = context.assets.list("story_audio")?.toList() ?: emptyList()
+                                    android.util.Log.d("StoryScreen", "获取到音频文件数量: ${files.size}")
+                                    if (files.isNotEmpty()) {
+                                        android.util.Log.d("StoryScreen", "前10个音频文件: ${files.take(10).joinToString(", ")}")
+                                    }
+                                    files
                                 } catch (e: Exception) {
                                     android.util.Log.e("StoryScreen", "获取音频文件列表失败", e)
                                     emptyList()
@@ -797,33 +787,16 @@ fun StoryScreen() {
                                 }
                             } catch (e: Exception) {
                                 android.util.Log.e("StoryScreen", "Assets音频初始化失败: ${e.message}")
-                                // 如果assets失败，尝试使用系统内置音频
+                                // 如果assets失败，释放MediaPlayer并显示错误
                                 try {
-                                    // 尝试使用系统默认铃声
-                                    val uri = android.net.Uri.parse("android.resource://${context.packageName}/android.R.raw.ringtone")
-                                    mp.setDataSource(context, uri)
-                                    mp.prepare()
-                                    mediaPlayer = mp
-                                    duration = mp.duration
-                                    android.util.Log.d("StoryScreen", "系统音频初始化成功，时长: ${duration}ms")
-                                } catch (e2: Exception) {
-                                    android.util.Log.e("StoryScreen", "系统音频初始化失败: ${e2.message}")
-                                    // 尝试使用通知音
-                                    try {
-                                        val uri = android.net.Uri.parse("android.resource://${context.packageName}/android.R.raw.notification")
-                                        mp.setDataSource(context, uri)
-                                        mp.prepare()
-                                        mediaPlayer = mp
-                                        duration = mp.duration
-                                        android.util.Log.d("StoryScreen", "通知音初始化成功，时长: ${duration}ms")
-                                    } catch (e3: Exception) {
-                                        android.util.Log.e("StoryScreen", "通知音初始化失败: ${e3.message}")
-                                        // 最后使用模拟音频
-                                        mediaPlayer = mp
-                                        duration = 0 // 标记为模拟音频
-                                        android.util.Log.d("StoryScreen", "使用模拟音频，时长: 30000ms")
-                                    }
+                                    mp.release()
+                                } catch (releaseEx: Exception) {
+                                    android.util.Log.w("StoryScreen", "释放MediaPlayer失败: ${releaseEx.message}")
                                 }
+                                mediaPlayer = null
+                                duration = 0
+                                android.util.Log.e("StoryScreen", "无法找到真实音频文件，播放失败")
+                                // 不设置模拟音频，必须使用真实音频
                             }
                             
                             // 设置监听器（仅对真实音频）
@@ -862,29 +835,21 @@ fun StoryScreen() {
                         }
                     }
 
-                    // 开始播放
-                    if (mediaPlayer != null) {
+                    // 开始播放（仅真实音频）
+                    if (mediaPlayer != null && duration > 0) {
                         try {
                             android.util.Log.d("StoryScreen", "准备开始播放，MediaPlayer状态: ${mediaPlayer?.isPlaying}")
-                            // 检查MediaPlayer是否已准备好
-                            if (duration > 0) {
-                                // 真实音频文件
-                                // 确保音量设置正确
-                                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-                                val currentVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
-                                android.util.Log.d("StoryScreen", "当前音量: $currentVolume")
-                                
-                                // 设置音量（确保不是静音）
-                                mediaPlayer?.setVolume(1.0f, 1.0f)
-                                mediaPlayer?.start()
-                                isPlaying = true
-                                android.util.Log.d("StoryScreen", "真实音频播放已开始，isPlaying=$isPlaying, 音量已设置为最大")
-                        } else {
-                                // 模拟音频，手动管理状态
-                                isPlaying = true
-                                currentPosition = 0
-                                android.util.Log.d("StoryScreen", "模拟音频播放已开始，isPlaying=$isPlaying")
-                            }
+                            // 真实音频文件
+                            // 确保音量设置正确
+                            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                            val currentVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
+                            android.util.Log.d("StoryScreen", "当前音量: $currentVolume")
+                            
+                            // 设置音量（确保不是静音）
+                            mediaPlayer?.setVolume(1.0f, 1.0f)
+                            mediaPlayer?.start()
+                            isPlaying = true
+                            android.util.Log.d("StoryScreen", "真实音频播放已开始，isPlaying=$isPlaying, 音量已设置为最大")
                             
                             // 记录进入音频页面并点击播放的动作
                             currentStory?.let { story ->
@@ -897,7 +862,7 @@ fun StoryScreen() {
                                                 "play_time" to System.currentTimeMillis(),
                                                 "audio_duration" to duration,
                                                 "is_real_audio" to (duration > 0),
-                                                "audio_type" to if (duration > 0) "real" else "simulated"
+                                                "audio_type" to "real"
                                             )
                                         )
                                     } catch (e: Exception) {
@@ -910,7 +875,7 @@ fun StoryScreen() {
                             isPlaying = false
                         }
                     } else {
-                        android.util.Log.e("StoryScreen", "MediaPlayer为null，无法播放")
+                        android.util.Log.e("StoryScreen", "MediaPlayer为null或duration为0，无法播放真实音频")
                         isPlaying = false
                     }
                 }
@@ -1238,51 +1203,134 @@ fun StoryScreen() {
  * 查找匹配的音频文件（使用多种匹配策略）
  */
 private fun findAudioFile(availableFiles: List<String>, storyId: String, storyTitle: String?): String? {
+    android.util.Log.d("StoryScreen", "=== 开始音频文件匹配 ===")
+    android.util.Log.d("StoryScreen", "storyId: $storyId")
+    android.util.Log.d("StoryScreen", "storyTitle: $storyTitle")
+    android.util.Log.d("StoryScreen", "可用文件数: ${availableFiles.size}")
+    
     // 策略1: 使用原始标题精确匹配
     if (!storyTitle.isNullOrBlank()) {
         val exactMatch = availableFiles.find { it.equals("$storyTitle.mp3", ignoreCase = true) }
         if (exactMatch != null) {
-            android.util.Log.d("StoryScreen", "精确匹配音频文件: $exactMatch")
+            android.util.Log.d("StoryScreen", "✓ 策略1成功: 精确匹配音频文件: $exactMatch")
             return exactMatch
+        } else {
+            android.util.Log.d("StoryScreen", "✗ 策略1失败: 未找到精确匹配 ($storyTitle.mp3)")
         }
     }
     
     // 策略2: 清理标题后匹配（处理常见特殊字符）
     if (!storyTitle.isNullOrBlank()) {
-        val cleanedTitle = storyTitle
-            .replace(Regex("[<>:\"/\\\\|?*]"), "_")  // 标准特殊字符
-            .replace(Regex("""[：""''""]"""), "_")  // 中文标点符号
+        // 先尝试保留引号，只替换冒号（因为音频文件名可能保留引号）
+        val cleanedTitle1 = storyTitle
+            .replace(Regex("："), "_")  // 中文冒号替换为下划线
+            .replace(Regex("[<>:\"/\\\\|?*]"), "_")  // 其他标准特殊字符替换为下划线（但保留中文引号）
             .replace(Regex("--+"), "-")  // 多个破折号合并
             .trim()
         
-        val cleanedMatch = availableFiles.find { fileName ->
+        // 再尝试移除引号，替换冒号为下划线
+        val cleanedTitle2 = storyTitle
+            .replace(Regex("："), "_")  // 中文冒号替换为下划线
+            .replace(Regex("""[""''""]"""), "")  // 移除中文引号
+            .replace(Regex("[<>:\"/\\\\|?*]"), "_")  // 标准特殊字符替换为下划线
+            .replace(Regex("--+"), "-")  // 多个破折号合并
+            .trim()
+        
+        // 再尝试保留引号，替换冒号为英文冒号
+        val cleanedTitle3 = storyTitle
+            .replace(Regex("："), ":")  // 中文冒号替换为英文冒号
+            .replace(Regex("[<>:\"/\\\\|?*]"), "_")  // 其他标准特殊字符替换为下划线（但保留中文引号）
+            .replace(Regex("--+"), "-")  // 多个破折号合并
+            .trim()
+        
+        android.util.Log.d("StoryScreen", "清理后标题1（保留引号，冒号→下划线）: $cleanedTitle1")
+        android.util.Log.d("StoryScreen", "清理后标题2（移除引号，冒号→下划线）: $cleanedTitle2")
+        android.util.Log.d("StoryScreen", "清理后标题3（保留引号，冒号→英文冒号）: $cleanedTitle3")
+        
+        // 尝试匹配清理后的标题1（保留引号，下划线版本）
+        var cleanedMatch = availableFiles.find { fileName ->
             val fileNameWithoutExt = fileName.removeSuffix(".mp3")
-            fileNameWithoutExt.equals(cleanedTitle, ignoreCase = true) ||
-            fileNameWithoutExt.contains(cleanedTitle, ignoreCase = true) ||
-            cleanedTitle.contains(fileNameWithoutExt, ignoreCase = true)
+            val match = fileNameWithoutExt.equals(cleanedTitle1, ignoreCase = true) ||
+            fileNameWithoutExt.contains(cleanedTitle1, ignoreCase = true) ||
+            cleanedTitle1.contains(fileNameWithoutExt, ignoreCase = true)
+            if (match) {
+                android.util.Log.d("StoryScreen", "找到清理后匹配（保留引号，下划线版本）: $fileName")
+            }
+            match
+        }
+        
+        // 如果保留引号版本没匹配到，尝试移除引号版本
+        if (cleanedMatch == null) {
+            cleanedMatch = availableFiles.find { fileName ->
+                val fileNameWithoutExt = fileName.removeSuffix(".mp3")
+                val match = fileNameWithoutExt.equals(cleanedTitle2, ignoreCase = true) ||
+                fileNameWithoutExt.contains(cleanedTitle2, ignoreCase = true) ||
+                cleanedTitle2.contains(fileNameWithoutExt, ignoreCase = true)
+                if (match) {
+                    android.util.Log.d("StoryScreen", "找到清理后匹配（移除引号，下划线版本）: $fileName")
+                }
+                match
+            }
+        }
+        
+        // 如果还没匹配到，尝试保留引号，英文冒号版本
+        if (cleanedMatch == null) {
+            cleanedMatch = availableFiles.find { fileName ->
+                val fileNameWithoutExt = fileName.removeSuffix(".mp3")
+                val match = fileNameWithoutExt.equals(cleanedTitle3, ignoreCase = true) ||
+                fileNameWithoutExt.contains(cleanedTitle3, ignoreCase = true) ||
+                cleanedTitle3.contains(fileNameWithoutExt, ignoreCase = true)
+                if (match) {
+                    android.util.Log.d("StoryScreen", "找到清理后匹配（保留引号，英文冒号版本）: $fileName")
+                }
+                match
+            }
         }
         
         if (cleanedMatch != null) {
-            android.util.Log.d("StoryScreen", "清理后匹配音频文件: $cleanedMatch (清理后标题: $cleanedTitle)")
+            android.util.Log.d("StoryScreen", "✓ 策略2成功: 清理后匹配音频文件: $cleanedMatch")
             return cleanedMatch
+        } else {
+            android.util.Log.d("StoryScreen", "✗ 策略2失败: 未找到清理后匹配")
         }
     }
     
-    // 策略3: 模糊匹配（包含关系）
+    // 策略3: 模糊匹配（包含关系）- 提取关键词匹配
     if (!storyTitle.isNullOrBlank()) {
-        val fuzzyMatch = availableFiles.find { fileName ->
+        // 提取标题中的关键词（去除标点符号和常见词）
+        val titleKeywords = storyTitle
+            .replace(Regex("""[""''""：：，。、！？；：]"""), " ")  // 替换标点符号为空格
+            .split(Regex("\\s+"))
+            .filter { it.length > 1 && !it.matches(Regex("\\d+")) }  // 过滤单字符和纯数字
+            .take(5)  // 取前5个关键词
+        
+        android.util.Log.d("StoryScreen", "提取的关键词: ${titleKeywords.joinToString(", ")}")
+        
+        // 先尝试至少匹配2个关键词
+        var fuzzyMatch = availableFiles.find { fileName ->
             val fileNameWithoutExt = fileName.removeSuffix(".mp3")
-            // 检查标题是否包含文件名的主要部分，或文件名包含标题的主要部分
-            val titleWords = storyTitle.split(Regex("""[\s\-：：""''""]""")).filter { word: String -> word.length > 1 }
-            titleWords.any { word: String ->
-                fileNameWithoutExt.contains(word, ignoreCase = true) ||
-                word.contains(fileNameWithoutExt.take(5), ignoreCase = true)
+            val matchCount = titleKeywords.count { keyword ->
+                fileNameWithoutExt.contains(keyword, ignoreCase = true) ||
+                keyword.contains(fileNameWithoutExt.take(keyword.length.coerceAtMost(5)), ignoreCase = true)
+            }
+            matchCount >= 2  // 至少匹配2个关键词
+        }
+        
+        // 如果2个关键词匹配失败，尝试匹配1个关键词（更宽松）
+        if (fuzzyMatch == null) {
+            fuzzyMatch = availableFiles.find { fileName ->
+                val fileNameWithoutExt = fileName.removeSuffix(".mp3")
+                titleKeywords.any { keyword ->
+                    fileNameWithoutExt.contains(keyword, ignoreCase = true)
+                }
             }
         }
         
         if (fuzzyMatch != null) {
-            android.util.Log.d("StoryScreen", "模糊匹配音频文件: $fuzzyMatch (原始标题: $storyTitle)")
+            android.util.Log.d("StoryScreen", "✓ 策略3成功: 模糊匹配音频文件: $fuzzyMatch (原始标题: $storyTitle)")
             return fuzzyMatch
+        } else {
+            android.util.Log.d("StoryScreen", "✗ 策略3失败: 未找到模糊匹配 (关键词: ${titleKeywords.joinToString(", ")})")
         }
     }
     
@@ -1291,19 +1339,65 @@ private fun findAudioFile(availableFiles: List<String>, storyId: String, storyTi
         val dateId = storyId.replace("2025-01-", "2024-01-")
         val dateMatch = availableFiles.find { it.startsWith(dateId, ignoreCase = true) }
         if (dateMatch != null) {
-            android.util.Log.d("StoryScreen", "日期格式匹配音频文件: $dateMatch")
+            android.util.Log.d("StoryScreen", "✓ 策略4成功: 日期格式匹配音频文件: $dateMatch")
             return dateMatch
+        } else {
+            android.util.Log.d("StoryScreen", "✗ 策略4失败: 未找到日期格式匹配 (dateId: $dateId)")
+        }
+    }
+    
+    // 策略4.5: 使用story_XXX格式匹配（提取数字部分）
+    if (storyId.startsWith("story_")) {
+        val storyNumber = storyId.removePrefix("story_")
+        android.util.Log.d("StoryScreen", "尝试策略4.5: story编号=$storyNumber")
+        // 尝试匹配包含该数字的文件名
+        val storyNumberMatch = availableFiles.find { fileName ->
+            fileName.contains(storyNumber, ignoreCase = true) ||
+            fileName.startsWith(storyNumber, ignoreCase = true)
+        }
+        if (storyNumberMatch != null) {
+            android.util.Log.d("StoryScreen", "✓ 策略4.5成功: Story编号匹配音频文件: $storyNumberMatch (storyId: $storyId)")
+            return storyNumberMatch
+        } else {
+            android.util.Log.d("StoryScreen", "✗ 策略4.5失败: 未找到story编号匹配 (编号: $storyNumber)")
         }
     }
     
     // 策略5: 直接使用storyId
     val storyIdMatch = availableFiles.find { it.startsWith(storyId, ignoreCase = true) }
     if (storyIdMatch != null) {
-        android.util.Log.d("StoryScreen", "StoryID匹配音频文件: $storyIdMatch")
+        android.util.Log.d("StoryScreen", "✓ 策略5成功: StoryID匹配音频文件: $storyIdMatch")
         return storyIdMatch
+    } else {
+        android.util.Log.d("StoryScreen", "✗ 策略5失败: 未找到storyId匹配 (storyId: $storyId)")
     }
     
+    android.util.Log.e("StoryScreen", "=== 所有匹配策略均失败 ===")
     android.util.Log.e("StoryScreen", "无法找到匹配的音频文件: storyId=$storyId, title=$storyTitle")
-    android.util.Log.d("StoryScreen", "可用音频文件列表: ${availableFiles.take(10).joinToString(", ")}")
+    android.util.Log.e("StoryScreen", "可用音频文件总数: ${availableFiles.size}")
+    if (availableFiles.isNotEmpty()) {
+        android.util.Log.e("StoryScreen", "前20个可用音频文件:")
+        availableFiles.take(20).forEachIndexed { index, fileName ->
+            android.util.Log.e("StoryScreen", "  ${index + 1}. $fileName")
+        }
+        // 尝试找到最相似的文件名
+        if (!storyTitle.isNullOrBlank()) {
+            val titleWords = storyTitle.replace(Regex("""[""''""：：，。、！？；：]"""), " ")
+                .split(Regex("\\s+"))
+                .filter { it.length > 1 }
+            val similarFiles = availableFiles.filter { fileName ->
+                titleWords.any { word -> fileName.contains(word, ignoreCase = true) }
+            }
+            if (similarFiles.isNotEmpty()) {
+                android.util.Log.e("StoryScreen", "可能相关的音频文件（包含标题关键词）:")
+                similarFiles.forEach { fileName ->
+                    android.util.Log.e("StoryScreen", "  - $fileName")
+                }
+            }
+        }
+    } else {
+        android.util.Log.e("StoryScreen", "警告: assets/story_audio目录为空或不存在！")
+    }
+    android.util.Log.e("StoryScreen", "=== 匹配结束 ===")
     return null
 }
