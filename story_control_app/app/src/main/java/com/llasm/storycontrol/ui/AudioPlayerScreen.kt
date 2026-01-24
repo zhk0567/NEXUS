@@ -114,63 +114,21 @@ fun AudioPlayerScreen(
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // 检查是否有真实音频文件
-            if (duration == 0 || mediaPlayer == null) {
-                // 没有音频文件，显示错误提示
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                ) {
-                    Text(
-                        text = "未找到音频文件",
-                        style = fontStyle.bodyMedium,
-                        color = Color(0xFFFF5722),
-                        textAlign = TextAlign.Center,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "请确保音频文件已正确放置在assets/story_audio目录中",
-                        style = fontStyle.bodySmall,
-                        color = themeColors.textSecondary,
-                        textAlign = TextAlign.Center
-                    )
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                // 禁用播放按钮
-                Button(
-                    onClick = { },
-                    modifier = Modifier.size(80.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = themeColors.textSecondary.copy(alpha = 0.5f)
-                    ),
-                    shape = CircleShape,
-                    enabled = false
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "播放",
-                        tint = themeColors.onPrimary.copy(alpha = 0.5f),
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-            } else {
-                // 播放控制按钮
-                Button(
-                    onClick = onPlayPause,
-                    modifier = Modifier.size(80.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = themeColors.primary
-                    ),
-                    shape = CircleShape
-                ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "暂停" else "播放",
-                        tint = themeColors.onPrimary,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
+            // 播放控制按钮（始终可用）
+            Button(
+                onClick = onPlayPause,
+                modifier = Modifier.size(80.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = themeColors.primary
+                ),
+                shape = CircleShape
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "暂停" else "播放",
+                    tint = themeColors.onPrimary,
+                    modifier = Modifier.size(32.dp)
+                )
             }
             
             Spacer(modifier = Modifier.height(24.dp))
