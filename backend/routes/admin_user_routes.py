@@ -42,6 +42,36 @@ def register_admin_user_routes(app):
             logger.error(f"❌ 管理员获取阅读进度失败: {e}")
             return jsonify({'error': str(e)}), 500
 
+    @app.route('/api/admin/users/interaction-progress', methods=['GET'])
+    def admin_get_all_interaction_progress():
+        """管理员获取所有用户AI使用进度"""
+        try:
+            admin_user_id = request.args.get('admin_user_id')
+            limit = int(request.args.get('limit', 100))
+            offset = int(request.args.get('offset', 0))
+            
+            if not admin_user_id:
+                return jsonify({'error': '缺少管理员用户ID'}), 400
+            
+            # 验证管理员身份
+            if not db_manager.user_exists(admin_user_id):
+                return jsonify({'error': '管理员身份验证失败'}), 401
+            
+            # 获取所有用户AI使用进度
+            result = db_manager.get_all_users_interaction_progress(limit, offset)
+            
+            if result is None:
+                return jsonify({'error': '获取AI使用进度失败'}), 500
+            
+            return jsonify({
+                'success': True,
+                'data': result
+            })
+            
+        except Exception as e:
+            logger.error(f"❌ 管理员获取AI使用进度失败: {e}")
+            return jsonify({'error': str(e)}), 500
+
     @app.route('/api/admin/users/<user_id>/summary', methods=['GET'])
     def admin_get_user_summary(user_id):
         """管理员获取用户阅读摘要"""

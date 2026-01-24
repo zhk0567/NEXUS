@@ -1,6 +1,8 @@
 package com.llasm.storycontrol.service
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.util.Log
 import kotlinx.coroutines.*
@@ -67,7 +69,16 @@ class TTSService(private val context: Context) {
             
             // 创建MediaPlayer并播放
             mediaPlayer = MediaPlayer().apply {
+                // 设置音频属性，确保音频能正常播放
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .build()
+                )
                 setDataSource(tempFile.absolutePath)
+                // 设置音量（确保不是静音）
+                setVolume(1.0f, 1.0f)
                  setOnPreparedListener { mediaPlayer ->
                      Log.d(TAG, "音频准备完成，开始播放")
                      this@TTSService.isPlaying = true
@@ -426,6 +437,13 @@ class TTSService(private val context: Context) {
             
             // 创建MediaPlayer仅用于获取时长
             val tempMediaPlayer = MediaPlayer().apply {
+                // 设置音频属性
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .build()
+                )
                 setDataSource(tempFile.absolutePath)
                 setOnPreparedListener { mediaPlayer ->
                     val duration = mediaPlayer.duration

@@ -961,6 +961,20 @@ class DatabaseManager:
                                        session_id, duration_seconds, success, error_message))
                     connection.commit()
                     
+                    # 异步更新当天的interaction_progress（不阻塞主流程）
+                    try:
+                        # 使用线程异步更新，避免影响性能
+                        import threading
+                        update_thread = threading.Thread(
+                            target=self._update_daily_interaction_progress,
+                            args=(user_id, username),
+                            daemon=True
+                        )
+                        update_thread.start()
+                    except Exception as e:
+                        # 更新progress失败不影响交互记录
+                        logger.debug(f"异步更新interaction_progress失败: {e}")
+                    
                     if connection:
                         connection.close()
                     # 交互记录成功，不输出日志
@@ -2369,6 +2383,355 @@ class DatabaseManager:
                 else:
                     return False
         return False
+
+    def get_interaction_progress(self, user_id: str = None, usage_date: str = None) -> List[Dict[str, Any]]:
+        """获取AI使用进度"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            connection = None
+            try:
+                connection = self._get_fresh_connection()
+                
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                    if user_id and usage_date:
+                        # 获取特定用户特定日期的进度
+                        sql = """
+                        SELECT user_id, username, usage_date, total_interactions, text_interactions,
+                               voice_interactions, tts_interactions, session_count, unique_session_ids,
+                               first_interaction_time, last_interaction_time, time_span_minutes,
+                               estimated_usage_time_minutes, explicit_duration_seconds, is_completed_5min,
+                               created_at, updated_at
+                        FROM interaction_progress 
+                        WHERE user_id = %s AND usage_date = %s
+                        ORDER BY usage_date DESC
+                        """
+                        cursor.execute(sql, (user_id, usage_date))
+                    elif user_id:
+                        # 获取特定用户的所有日期进度
+                        sql = """
+                        SELECT user_id, username, usage_date, total_interactions, text_interactions,
+                               voice_interactions, tts_interactions, session_count, unique_session_ids,
+                               first_interaction_time, last_interaction_time, time_span_minutes,
+                               estimated_usage_time_minutes, explicit_duration_seconds, is_completed_5min,
+                               created_at, updated_at
+                        FROM interaction_progress 
+                        WHERE user_id = %s
+                        ORDER BY usage_date DESC
+                        """
+                        cursor.execute(sql, (user_id,))
+                    elif usage_date:
+                        # 获取特定日期的所有用户进度
+                        sql = """
+                        SELECT user_id, username, usage_date, total_interactions, text_interactions,
+                               voice_interactions, tts_interactions, session_count, unique_session_ids,
+                               first_interaction_time, last_interaction_time, time_span_minutes,
+                               estimated_usage_time_minutes, explicit_duration_seconds, is_completed_5min,
+                               created_at, updated_at
+                        FROM interaction_progress 
+                        WHERE usage_date = %s
+                        ORDER BY user_id, usage_date DESC
+                        """
+                        cursor.execute(sql, (usage_date,))
+                    else:
+                        # 获取所有进度
+                        sql = """
+                        SELECT user_id, username, usage_date, total_interactions, text_interactions,
+                               voice_interactions, tts_interactions, session_count, unique_session_ids,
+                               first_interaction_time, last_interaction_time, time_span_minutes,
+                               estimated_usage_time_minutes, explicit_duration_seconds, is_completed_5min,
+                               created_at, updated_at
+                        FROM interaction_progress 
+                        ORDER BY user_id, usage_date DESC
+                        """
+                        cursor.execute(sql)
+                    
+                    results = cursor.fetchall()
+                    
+                    # 处理结果
+                    progress_list = []
+                    for row in results:
+                        progress = {
+                            'user_id': row['user_id'],
+                            'username': row['username'],
+                            'usage_date': str(row['usage_date']) if row['usage_date'] else None,
+                            'total_interactions': row['total_interactions'],
+                            'text_interactions': row['text_interactions'],
+                            'voice_interactions': row['voice_interactions'],
+                            'tts_interactions': row['tts_interactions'],
+                            'session_count': row['session_count'],
+                            'unique_session_ids': row['unique_session_ids'],
+                            'first_interaction_time': str(row['first_interaction_time']) if row['first_interaction_time'] else None,
+                            'last_interaction_time': str(row['last_interaction_time']) if row['last_interaction_time'] else None,
+                            'time_span_minutes': float(row['time_span_minutes']) if row['time_span_minutes'] else 0.0,
+                            'estimated_usage_time_minutes': float(row['estimated_usage_time_minutes']) if row['estimated_usage_time_minutes'] else 0.0,
+                            'explicit_duration_seconds': row['explicit_duration_seconds'],
+                            'is_completed_5min': bool(row['is_completed_5min']),
+                            'created_at': str(row['created_at']) if row['created_at'] else None,
+                            'updated_at': str(row['updated_at']) if row['updated_at'] else None
+                        }
+                        progress_list.append(progress)
+                    
+                    if connection:
+                        connection.close()
+                    return progress_list
+                    
+            except Exception as e:
+                logger.error(f"❌ 获取AI使用进度失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    return []
+            finally:
+                if connection:
+                    connection.close()
+        return []
+
+    def get_all_users_interaction_progress(self, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+        """获取所有用户的AI使用进度（管理员用）"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            connection = None
+            try:
+                connection = self._get_fresh_connection()
+                
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                    # 获取总数
+                    count_sql = "SELECT COUNT(*) as total FROM interaction_progress"
+                    cursor.execute(count_sql)
+                    total = cursor.fetchone()['total']
+                    
+                    # 获取分页数据
+                    sql = """
+                    SELECT user_id, username, usage_date, total_interactions, text_interactions,
+                           voice_interactions, tts_interactions, session_count, unique_session_ids,
+                           first_interaction_time, last_interaction_time, time_span_minutes,
+                           estimated_usage_time_minutes, explicit_duration_seconds, is_completed_5min,
+                           created_at, updated_at
+                    FROM interaction_progress 
+                    ORDER BY user_id, usage_date DESC
+                    LIMIT %s OFFSET %s
+                    """
+                    cursor.execute(sql, (limit, offset))
+                    results = cursor.fetchall()
+                    
+                    # 处理结果
+                    progress_list = []
+                    for row in results:
+                        progress = {
+                            'user_id': row['user_id'],
+                            'username': row['username'],
+                            'usage_date': str(row['usage_date']) if row['usage_date'] else None,
+                            'total_interactions': row['total_interactions'],
+                            'text_interactions': row['text_interactions'],
+                            'voice_interactions': row['voice_interactions'],
+                            'tts_interactions': row['tts_interactions'],
+                            'session_count': row['session_count'],
+                            'unique_session_ids': row['unique_session_ids'],
+                            'first_interaction_time': str(row['first_interaction_time']) if row['first_interaction_time'] else None,
+                            'last_interaction_time': str(row['last_interaction_time']) if row['last_interaction_time'] else None,
+                            'time_span_minutes': float(row['time_span_minutes']) if row['time_span_minutes'] else 0.0,
+                            'estimated_usage_time_minutes': float(row['estimated_usage_time_minutes']) if row['estimated_usage_time_minutes'] else 0.0,
+                            'explicit_duration_seconds': row['explicit_duration_seconds'],
+                            'is_completed_5min': bool(row['is_completed_5min']),
+                            'created_at': str(row['created_at']) if row['created_at'] else None,
+                            'updated_at': str(row['updated_at']) if row['updated_at'] else None
+                        }
+                        progress_list.append(progress)
+                    
+                    if connection:
+                        connection.close()
+                    return {
+                        'total': total,
+                        'limit': limit,
+                        'offset': offset,
+                        'data': progress_list
+                    }
+                    
+            except Exception as e:
+                logger.error(f"❌ 获取所有用户AI使用进度失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    return {'total': 0, 'limit': limit, 'offset': offset, 'data': []}
+            finally:
+                if connection:
+                    connection.close()
+        return {'total': 0, 'limit': limit, 'offset': offset, 'data': []}
+
+    def _update_daily_interaction_progress(self, user_id: str, username: str):
+        """
+        更新用户当天的interaction_progress（异步调用，不阻塞主流程）
+        这个方法在每次记录交互后自动调用
+        """
+        try:
+            from datetime import datetime, timedelta
+            
+            # 获取今天的日期
+            today = datetime.now().date()
+            
+            # 查询用户今天的所有交互记录
+            connection = None
+            try:
+                connection = self._get_fresh_connection()
+                
+                with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                    sql = """
+                    SELECT 
+                        interaction_type,
+                        timestamp,
+                        session_id,
+                        duration_seconds
+                    FROM interactions
+                    WHERE user_id = %s
+                        AND DATE(timestamp) = %s
+                        AND interaction_type IN ('text', 'voice_home', 'voice_call', 'tts_play')
+                        AND success = 1
+                    ORDER BY timestamp ASC
+                    """
+                    cursor.execute(sql, (user_id, today))
+                    interactions = cursor.fetchall()
+                    
+                    if not interactions:
+                        # 如果没有交互记录，删除或保持现有记录
+                        connection.close()
+                        return
+                    
+                    # 转换timestamp为datetime对象
+                    for interaction in interactions:
+                        if isinstance(interaction['timestamp'], str):
+                            interaction['timestamp'] = datetime.strptime(interaction['timestamp'], '%Y-%m-%d %H:%M:%S')
+                    
+                    # 计算指标（使用与generate_interaction_progress.py相同的逻辑）
+                    SESSION_TIMEOUT_MINUTES = 30
+                    ACTIVE_GAP_THRESHOLD_SECONDS = 120
+                    
+                    total_interactions = len(interactions)
+                    text_interactions = len([i for i in interactions if i['interaction_type'] == 'text'])
+                    voice_interactions = len([i for i in interactions if i['interaction_type'] == 'voice_call'])
+                    tts_interactions = len([i for i in interactions if i['interaction_type'] == 'tts_play'])
+                    
+                    unique_sessions = len(set([i['session_id'] for i in interactions if i.get('session_id')]))
+                    
+                    # 计算活跃使用时长
+                    timestamps = [i['timestamp'] for i in interactions]
+                    session_count = 0
+                    active_time_sec = 0
+                    
+                    if len(timestamps) >= 1:
+                        session_count = 1
+                        
+                        for i in range(1, len(timestamps)):
+                            gap_sec = (timestamps[i] - timestamps[i-1]).total_seconds()
+                            
+                            if gap_sec > SESSION_TIMEOUT_MINUTES * 60:
+                                session_count += 1
+                            elif gap_sec <= ACTIVE_GAP_THRESHOLD_SECONDS:
+                                active_time_sec += gap_sec
+                    
+                    total_session_time_sec = active_time_sec
+                    explicit_duration = sum([i.get('duration_seconds', 0) or 0 for i in interactions])
+                    base_interaction_time = (text_interactions * 15) + (voice_interactions * 10) + (tts_interactions * 5)
+                    total_usage_time_sec = total_session_time_sec + base_interaction_time + explicit_duration
+                    total_usage_time_min = total_usage_time_sec / 60
+                    completed_5min = total_usage_time_min >= 5
+                    
+                    first_interaction = interactions[0]['timestamp'].time() if interactions else None
+                    last_interaction = interactions[-1]['timestamp'].time() if interactions else None
+                    
+                    if len(interactions) > 1:
+                        time_span_sec = (interactions[-1]['timestamp'] - interactions[0]['timestamp']).total_seconds()
+                        time_span_min = time_span_sec / 60
+                    else:
+                        time_span_min = 0
+                    
+                    # 更新或插入interaction_progress表
+                    check_sql = """
+                    SELECT id FROM interaction_progress 
+                    WHERE user_id = %s AND usage_date = %s
+                    """
+                    cursor.execute(check_sql, (user_id, today))
+                    existing = cursor.fetchone()
+                    
+                    if existing:
+                        # 更新现有记录
+                        update_sql = """
+                        UPDATE interaction_progress SET
+                            username = %s,
+                            total_interactions = %s,
+                            text_interactions = %s,
+                            voice_interactions = %s,
+                            tts_interactions = %s,
+                            session_count = %s,
+                            unique_session_ids = %s,
+                            first_interaction_time = %s,
+                            last_interaction_time = %s,
+                            time_span_minutes = %s,
+                            estimated_usage_time_minutes = %s,
+                            explicit_duration_seconds = %s,
+                            is_completed_5min = %s,
+                            updated_at = NOW()
+                        WHERE user_id = %s AND usage_date = %s
+                        """
+                        cursor.execute(update_sql, (
+                            username,
+                            total_interactions,
+                            text_interactions,
+                            voice_interactions,
+                            tts_interactions,
+                            session_count,
+                            unique_sessions,
+                            first_interaction,
+                            last_interaction,
+                            round(time_span_min, 2),
+                            round(total_usage_time_min, 2),
+                            int(explicit_duration),
+                            completed_5min,
+                            user_id,
+                            today
+                        ))
+                    else:
+                        # 插入新记录
+                        insert_sql = """
+                        INSERT INTO interaction_progress 
+                        (user_id, username, usage_date, total_interactions, text_interactions,
+                         voice_interactions, tts_interactions, session_count, unique_session_ids,
+                         first_interaction_time, last_interaction_time, time_span_minutes,
+                         estimated_usage_time_minutes, explicit_duration_seconds, is_completed_5min)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """
+                        cursor.execute(insert_sql, (
+                            user_id,
+                            username,
+                            today,
+                            total_interactions,
+                            text_interactions,
+                            voice_interactions,
+                            tts_interactions,
+                            session_count,
+                            unique_sessions,
+                            first_interaction,
+                            last_interaction,
+                            round(time_span_min, 2),
+                            round(total_usage_time_min, 2),
+                            int(explicit_duration),
+                            completed_5min
+                        ))
+                    
+                    connection.commit()
+                    connection.close()
+                    
+            except Exception as e:
+                # 更新失败不影响主流程，只记录debug日志
+                logger.debug(f"更新interaction_progress失败: {e}")
+                if connection:
+                    try:
+                        connection.close()
+                    except:
+                        pass
+                        
+        except Exception as e:
+            # 静默处理，不影响主流程
+            logger.debug(f"异步更新interaction_progress异常: {e}")
 
 # 全局数据库管理器实例
 db_manager = DatabaseManager()

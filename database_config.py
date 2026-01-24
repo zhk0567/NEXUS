@@ -127,6 +127,36 @@ CREATE_TABLES_SQL = {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='故事交互记录表'
     """,
     
+    'interaction_progress': """
+    CREATE TABLE IF NOT EXISTS interaction_progress (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL COMMENT '用户ID',
+        username VARCHAR(100) NULL COMMENT '用户名',
+        usage_date DATE NOT NULL COMMENT '使用日期',
+        total_interactions INT DEFAULT 0 COMMENT '总交互次数',
+        text_interactions INT DEFAULT 0 COMMENT '文字交互次数',
+        voice_interactions INT DEFAULT 0 COMMENT '语音交互次数',
+        tts_interactions INT DEFAULT 0 COMMENT 'TTS播放次数',
+        session_count INT DEFAULT 0 COMMENT '会话数量',
+        unique_session_ids INT DEFAULT 0 COMMENT '唯一会话ID数量',
+        first_interaction_time TIME NULL COMMENT '首次交互时间',
+        last_interaction_time TIME NULL COMMENT '最后交互时间',
+        time_span_minutes DECIMAL(10,2) DEFAULT 0.00 COMMENT '时间跨度（分钟）',
+        estimated_usage_time_minutes DECIMAL(10,2) DEFAULT 0.00 COMMENT '估算使用时长（分钟）',
+        explicit_duration_seconds INT DEFAULT 0 COMMENT '明确记录的时长（秒）',
+        is_completed_5min BOOLEAN DEFAULT FALSE COMMENT '是否完成5分钟使用',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+        UNIQUE KEY uk_user_date (user_id, usage_date),
+        INDEX idx_user_id (user_id),
+        INDEX idx_username (username),
+        INDEX idx_usage_date (usage_date),
+        INDEX idx_is_completed_5min (is_completed_5min),
+        INDEX idx_estimated_usage_time (estimated_usage_time_minutes),
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI使用进度表'
+    """,
+    
 }
 
 # 数据库初始化SQL

@@ -1,6 +1,8 @@
 package com.llasm.storycontrol.ui
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -754,7 +756,15 @@ fun StoryScreen() {
                         // 初始化MediaPlayer
                         android.util.Log.d("StoryScreen", "开始初始化MediaPlayer")
                         try {
-                            val mp = MediaPlayer()
+                            val mp = MediaPlayer().apply {
+                                // 设置音频属性，确保音频能正常播放
+                                setAudioAttributes(
+                                    AudioAttributes.Builder()
+                                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                                        .build()
+                                )
+                            }
 
                             // 尝试使用assets中的音频文件（使用改进的匹配策略）
                             try {
@@ -859,9 +869,16 @@ fun StoryScreen() {
                             // 检查MediaPlayer是否已准备好
                             if (duration > 0) {
                                 // 真实音频文件
+                                // 确保音量设置正确
+                                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                                val currentVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
+                                android.util.Log.d("StoryScreen", "当前音量: $currentVolume")
+                                
+                                // 设置音量（确保不是静音）
+                                mediaPlayer?.setVolume(1.0f, 1.0f)
                                 mediaPlayer?.start()
                                 isPlaying = true
-                                android.util.Log.d("StoryScreen", "真实音频播放已开始，isPlaying=$isPlaying")
+                                android.util.Log.d("StoryScreen", "真实音频播放已开始，isPlaying=$isPlaying, 音量已设置为最大")
                         } else {
                                 // 模拟音频，手动管理状态
                                 isPlaying = true

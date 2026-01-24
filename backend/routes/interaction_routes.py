@@ -233,3 +233,29 @@ def register_interaction_routes(app):
             logger.error(f"❌ 获取活跃用户失败: {e}")
             return jsonify({'error': str(e)}), 500
 
+    @app.route('/api/interactions/progress', methods=['GET'])
+    def get_interaction_progress():
+        """获取用户AI使用进度"""
+        try:
+            user_id = request.args.get('user_id')
+            usage_date = request.args.get('usage_date')  # 可选，格式：YYYY-MM-DD
+            
+            if not user_id:
+                return jsonify({'error': '缺少用户ID'}), 400
+            
+            # 验证用户身份
+            if not db_manager.user_exists(user_id):
+                return jsonify({'error': '用户身份验证失败'}), 401
+            
+            # 获取AI使用进度
+            progress_list = db_manager.get_interaction_progress(user_id, usage_date)
+            
+            return jsonify({
+                'success': True,
+                'progress': progress_list,
+                'count': len(progress_list)
+            })
+            
+        except Exception as e:
+            logger.error(f"❌ 获取AI使用进度失败: {e}")
+            return jsonify({'error': str(e)}), 500
