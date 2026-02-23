@@ -26,7 +26,12 @@ NEXUS Unified 是一个企业级智能语音交互平台，集成实时语音识
 
 1. **克隆项目**
 ```bash
+# 从 Gitee 克隆
 git clone https://gitee.com/zhk567/NEXUS.git
+cd NEXUS-main
+
+# 或从 GitHub 克隆
+git clone https://github.com/zhk0567/NEXUS.git
 cd NEXUS-main
 ```
 
@@ -180,6 +185,13 @@ Content-Type: application/json
 
 ## 更新日志
 
+### v3.5.0 (2025-01-24)
+- 🐛 修复音频播放状态同步问题，确保UI立即响应播放/暂停操作
+- 🐛 修复音频文件匹配逻辑，支持多种文件名格式和特殊字符
+- 🐛 移除初始加载时的错误消息显示，改善用户体验
+- ✨ 优化音频播放控制，添加状态同步机制
+- ✨ 改进音频文件查找策略，支持ID匹配、标题匹配等多种方式
+
 ### v3.4.0 (2025-11-22)
 - 🔧 后端代码重构：将大型文件拆分为模块化结构（所有文件<500行）
 - 🔧 符合PEP 8和阿里编码规范，提升代码可维护性
@@ -317,8 +329,9 @@ MIT License
 
 ## 联系方式
 
-- **项目地址**：https://gitee.com/zhk567/NEXUS
-- **问题反馈**：请在Gitee Issues中提交
+- **Gitee 仓库**：https://gitee.com/zhk567/NEXUS
+- **GitHub 仓库**：https://github.com/zhk0567/NEXUS
+- **问题反馈**：请在 Gitee 或 GitHub Issues 中提交
 
 ---
 
